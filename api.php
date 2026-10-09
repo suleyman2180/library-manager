@@ -1,0 +1,696 @@
+<?php
+session_set_cookie_params(['httponly'=>true,'samesite'=>'Strict','secure'=>!empty($_SERVER['HTTPS'])]);
+session_start();
+header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store');
+$D = __DIR__ . '/data';
+if (!is_dir($D)) mkdir($D, 0750, true);
+$F = ['u' => 'users.json', 'b' => 'book.json', 'l' => 'loans.json'];
+function rd($f, $d) { $p = __DIR__ . "/data/$f"; if (!is_file($p)) return $d; $j = json_decode(file_get_contents($p), true); return $j === null ? $d : $j; }
+function wr($f, $v) { $p = __DIR__ . "/data/$f"; file_put_contents($p, json_encode($v, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX); }
+function out($c,$v){http_response_code($c);echo json_encode($v,JSON_UNESCAPED_UNICODE);exit;}
+function pub($S){return array_values(array_map(function($x){return ['id'=>$x['id'],'name'=>$x['name'],'username'=>$x['username']];},$S['admins']));}
+function me($S){foreach($S['admins'] as $x)if($x['id']===($_SESSION['aid']??''))return $x;return null;}
+function meinfo($S){$m=me($S);return $m?['id'=>$m['id'],'name'=>$m['name'],'username'=>$m['username']]:null;}
+$in=json_decode(file_get_contents('php://input'),true);if(!is_array($in))$in=[];
+$a=$_GET['a']??'';$post=$_SERVER['REQUEST_METHOD']=='POST';
+$S=rd('ayarlar.json',[]);if(!is_array($S))$S=[];
+if(empty($S['admins'])){ // ilk kurulum / eski PIN sürümünden geçiş
+  $h=$S['hash']??password_hash('1234',PASSWORD_DEFAULT);
+  $S['admins']=[['id'=>'a1','username'=>'admin','name'=>'Yönetici','hash'=>$h]];
+  unset($S['hash']);if(empty($S['theme']))$S['theme']='dark';wr('ayarlar.json',$S);
+}
+foreach($F as $f)if(!is_file("$D/$f"))wr($f,[]);
+if($a=='brand'){$st=$S['settings']??[];out(200,['name'=>($st['name']??'')?:'Fihrist','slogan'=>($st['slogan']??'')?:'Kütüphane Yönetimi']);}
+if($a=='login'&&$post){
+  $u=trim((string)($in['username']??''));$p=(string)($in['password']??'');
+  foreach($S['admins'] as $x)if(strcasecmp($x['username'],$u)==0&&password_verify($p,$x['hash'])){session_regenerate_id(true);$_SESSION['aid']=$x['id'];out(200,['ok'=>1]);}
+  sleep(1);out(401,['ok'=>0]);
+}
+if($a=='logout'){$_SESSION=[];session_destroy();out(200,['ok'=>1]);}
+$me=me($S);if(!$me)out(401,['ok'=>0]);
+if($a=='get'){$r=[];foreach($F as $k=>$f)$r[$k]=rd($f,[]);$r['theme']=$S['theme']??'dark';$r['s']=(object)($S['settings']??[]);$r['admins']=pub($S);$r['me']=meinfo($S);$r['hasKey']=!empty($S['isbndb_key']);$r['hasGeminiKey']=!empty($S['gemini_key']);out(200,$r);}
+if($a=='save'&&$post){
+  foreach($F as $k=>$f)if(isset($in[$k])&&is_array($in[$k]))wr($f,array_values($in[$k]));
+  if(isset($in['s'])&&is_array($in['s']))$S['settings']=$in['s'];
+  $S['theme']=(($in['theme']??'')=='light')?'light':'dark';wr('ayarlar.json',$S);out(200,['ok'=>1]);
+}
+if($a=='admin_save'&&$post){
+  $nm=trim((string)($in['name']??''));$un=trim((string)($in['username']??''));$pw=(string)($in['password']??'');$id=(string)($in['id']??'');
+  if($nm===''||$un==='')out(400,['ok'=>0,'err'=>'Ad ve kullanıcı adı gerekli']);
+  foreach($S['admins'] as $x)if(strcasecmp($x['username'],$un)==0&&$x['id']!==$id)out(400,['ok'=>0,'err'=>'Bu kullanıcı adı kullanılıyor']);
+  if($id===''){
+    if(strlen($pw)<6)out(400,['ok'=>0,'err'=>'Şifre en az 6 karakter olmalı']);
+    $S['admins'][]=['id'=>bin2hex(random_bytes(4)),'username'=>$un,'name'=>$nm,'hash'=>password_hash($pw,PASSWORD_DEFAULT)];
+  }else{
+    $found=false;
+    foreach($S['admins'] as $i=>$x)if($x['id']===$id){
+      $found=true;$S['admins'][$i]['name']=$nm;$S['admins'][$i]['username']=$un;
+      if($pw!==''){if(strlen($pw)<6)out(400,['ok'=>0,'err'=>'Şifre en az 6 karakter olmalı']);$S['admins'][$i]['hash']=password_hash($pw,PASSWORD_DEFAULT);}
+    }
+    if(!$found)out(404,['ok'=>0,'err'=>'Yönetici bulunamadı']);
+  }
+  wr('ayarlar.json',$S);out(200,['ok'=>1,'admins'=>pub($S),'me'=>meinfo($S)]);
+}
+if($a=='admin_del'&&$post){
+  $id=(string)($in['id']??'');
+  if($id===$me['id'])out(400,['ok'=>0,'err'=>'Kendi hesabınızı silemezsiniz']);
+  if(count($S['admins'])<2)out(400,['ok'=>0,'err'=>'En az bir yönetici kalmalı']);
+  $S['admins']=array_values(array_filter($S['admins'],function($x)use($id){return $x['id']!==$id;}));
+  wr('ayarlar.json',$S);out(200,['ok'=>1,'admins'=>pub($S)]);
+}
+if($a=='password'&&$post){
+  $old=(string)($in['old']??'');$new=(string)($in['new']??'');
+  if(!password_verify($old,$me['hash']))out(400,['ok'=>0,'err'=>'Mevcut şifre yanlış']);
+  if(strlen($new)<6)out(400,['ok'=>0,'err'=>'Yeni şifre en az 6 karakter olmalı']);
+  foreach($S['admins'] as $i=>$x)if($x['id']===$me['id'])$S['admins'][$i]['hash']=password_hash($new,PASSWORD_DEFAULT);
+  wr('ayarlar.json',$S);out(200,['ok'=>1]);
+}
+
+// ---------- API Key İşlemleri (Gemini & ISBNdb) ----------
+if($a=='isbndb_key'&&$post){$k=trim((string)($in['key']??''));if($k==='')unset($S['isbndb_key']);else $S['isbndb_key']=$k;wr('ayarlar.json',$S);out(200,['ok'=>1,'hasKey'=>$k!=='']);}
+if($a=='gemini_key'&&$post){$k=trim((string)($in['key']??''));if($k==='')unset($S['gemini_key']);else $S['gemini_key']=$k;wr('ayarlar.json',$S);out(200,['ok'=>1,'hasKey'=>$k!=='']);}
+
+function clean_pages($val){
+  if(is_numeric($val)) return max(0, (int)$val);
+  if(is_string($val)){
+    $d = preg_replace('/[^0-9]/', '', $val);
+    return $d !== '' ? (int)$d : 0;
+  }
+  return 0;
+}
+
+function clean_category($raw, $subjects = []){
+  $ignorePatterns = ['arborist', 'merchandising', 'root', 'series:', 'person:', 'place:', 'time:', 'subject:', 'ia:', 'id:'];
+
+  $filterTag = function($str) use ($ignorePatterns) {
+    $s = trim((string)$str);
+    if($s === '') return null;
+    $lower = mb_strtolower($s, 'UTF-8');
+    foreach($ignorePatterns as $pat){
+      if(strpos($lower, $pat) !== false) return null;
+    }
+    return $s;
+  };
+
+  $clean = $filterTag($raw);
+
+  if(!$clean && !empty($subjects) && is_array($subjects)){
+    foreach($subjects as $item){
+      $name = is_array($item) ? ($item['name'] ?? '') : (string)$item;
+      $cand = $filterTag($name);
+      if($cand){
+        $clean = $cand;
+        break;
+      }
+    }
+  }
+
+  if(!$clean) return 'Genel';
+
+  $map = [
+    'fiction' => 'Roman',
+    'juvenile fiction' => 'Çocuk Edebiyatı',
+    'children\'s books' => 'Çocuk Edebiyatı',
+    'literature' => 'Edebiyat',
+    'history' => 'Tarih',
+    'poetry' => 'Şiir',
+    'philosophy' => 'Felsefe',
+    'psychology' => 'Psikoloji',
+    'science' => 'Bilim',
+    'science fiction' => 'Bilim Kurgu',
+    'fantasy' => 'Fantastik',
+    'biography' => 'Biyografi',
+    'autobiography' => 'Biyografi',
+    'religion' => 'Din & İnanç',
+    'classics' => 'Klasik',
+    'art' => 'Sanat',
+    'business' => 'İş & Ekonomi',
+    'economics' => 'Ekonomi',
+    'self-help' => 'Kişisel Gelişim'
+  ];
+
+  $lowerClean = mb_strtolower($clean, 'UTF-8');
+  foreach($map as $en => $tr){
+    if($lowerClean === $en || strpos($lowerClean, $en) !== false){
+      return $tr;
+    }
+  }
+
+  return mb_convert_case($clean, MB_CASE_TITLE, 'UTF-8');
+}
+
+// ===== ISBNdb API Motoru =====
+function idb($path,$q=[],$post=null){
+  global $S;$k=trim((string)($S['isbndb_key']??''));
+  if($k==='')return [400,['errorMessage'=>'ISBNdb API anahtarı girilmemiş']];
+  $url='https://api2.isbndb.com'.$path.($q?'?'.http_build_query($q):'');
+  $h=['Authorization: '.$k,'Accept: application/json'];
+  $ch=curl_init($url);
+  curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>1,CURLOPT_TIMEOUT=>15,CURLOPT_SSL_VERIFYPEER=>0,CURLOPT_IPRESOLVE=>CURL_IPRESOLVE_V4,CURLOPT_HTTPHEADER=>$h]);
+  if($post!==null){curl_setopt($ch,CURLOPT_POST,1);curl_setopt($ch,CURLOPT_POSTFIELDS,$post);}
+  $res=curl_exec($ch);$c=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);curl_close($ch);
+  $j=json_decode((string)$res,true);
+  return [$c,is_array($j)?$j:[]];
+}
+function nb($b){
+  if(!is_array($b))return null;
+  $isbn=(string)($b['isbn13']??$b['isbn']??'');
+  $subj=$b['subjects']??[];$au=$b['authors']??[];
+  $rawPages = $b['pages'] ?? $b['number_of_pages'] ?? $b['page_count'] ?? 0;
+  $rawCat = is_array($subj) && !empty($subj) ? $subj[0] : '';
+  return [
+    'isbn'=>$isbn,
+    'title'=>trim((string)($b['title_long']??$b['title']??'')),
+    'author'=>is_array($au)?implode(', ',$au):(string)$au,
+    'publisher'=>(string)($b['publisher']??''),
+    'year'=>substr((string)($b['date_published']??''),0,4),
+    'pages'=>clean_pages($rawPages),
+    'category'=>clean_category($rawCat, $subj),
+    'image'=>(string)($b['image']??''),
+    'source'=>'isbndb'
+  ];
+}
+function search_isbndb_isbn($isbn){
+  global $S;
+  if(empty($S['isbndb_key'])) return null;
+  list($c, $j) = idb('/book/' . $isbn);
+  if($c == 200 && !empty($j['book'])){
+    $n = nb($j['book']);
+    if($n && !empty($n['title'])) return $n;
+  }
+  return null;
+}
+function search_isbndb_title($query){
+  global $S;
+  if(empty($S['isbndb_key'])) return [];
+  list($c, $j) = idb('/books/' . rawurlencode($query), ['pageSize' => 20]);
+  if($c == 200 && !empty($j['books'])){
+    $books = [];
+    foreach($j['books'] as $item){
+      $n = nb($item);
+      if($n && !empty($n['title'])) $books[] = $n;
+    }
+    return $books;
+  }
+  return [];
+}
+function search_isbndb_pubbooks($pubname, $page=1){
+  global $S;
+  if(empty($S['isbndb_key'])) return [];
+  list($c, $j) = idb('/publisher/' . rawurlencode($pubname), ['page' => $page, 'pageSize' => 50]);
+  if($c != 200 || empty($j['books'])){
+    list($c, $j) = idb('/books/' . rawurlencode($pubname), ['column' => 'publisher', 'page' => $page, 'pageSize' => 50]);
+  }
+  if($c == 200 && !empty($j['books'])){
+    $books = [];
+    foreach($j['books'] as $item){
+      $n = nb($item);
+      if($n && !empty($n['title'])) $books[] = $n;
+    }
+    return $books;
+  }
+  return [];
+}
+
+// ---------- Arama ve Veri Çekme Motoru (ISBNdb + Gemini API + Open Library + Kitapyurdu + Google Books) ----------
+$UAS=[
+ 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+ 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
+ 'Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0'
+];
+function isbn_norm($raw){
+  $d=strtoupper(preg_replace('/[^0-9Xx]/','',(string)$raw));
+  if(strlen($d)==10){ // ISBN-10 → ISBN-13
+    $c=0;for($i=0;$i<9;$i++){if(!ctype_digit($d[$i]))return null;$c+=(10-$i)*(int)$d[$i];}
+    $c+=($d[9]=='X')?10:(int)$d[9];if($c%11!==0)return null;
+    $b='978'.substr($d,0,9);$sum=0;for($i=0;$i<12;$i++)$sum+=(int)$b[$i]*($i%2?3:1);
+    return $b.((10-$sum%10)%10);
+  }
+  if(strlen($d)==13&&ctype_digit($d)){$sum=0;for($i=0;$i<12;$i++)$sum+=(int)$d[$i]*($i%2?3:1);return ((10-$sum%10)%10)==(int)$d[12]?$d:null;}
+  return null;
+}
+function http_get($url,$timeout=10){
+  global $UAS;$ua=$UAS[array_rand($UAS)];
+  $ch=curl_init($url);
+  curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>1,CURLOPT_FOLLOWLOCATION=>1,CURLOPT_MAXREDIRS=>4,CURLOPT_TIMEOUT=>$timeout,CURLOPT_CONNECTTIMEOUT=>5,
+    CURLOPT_ENCODING=>'',CURLOPT_USERAGENT=>$ua,CURLOPT_SSL_VERIFYPEER=>0,CURLOPT_IPRESOLVE=>CURL_IPRESOLVE_V4,
+    CURLOPT_HTTPHEADER=>['Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8','Accept-Language: tr-TR,tr;q=0.9,en;q=0.5','Upgrade-Insecure-Requests: 1']]);
+  $b=curl_exec($ch);$c=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);$u=(string)curl_getinfo($ch,CURLINFO_EFFECTIVE_URL);$er=curl_error($ch);curl_close($ch);
+  return [$c,is_string($b)?$b:'',$u,$er];
+}
+
+// ===== Gemini API Motoru =====
+function search_gemini_isbn($isbn){
+  global $S;
+  $k = trim((string)($S['gemini_key'] ?? ''));
+  if($k === '') return null;
+  $models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+  $prompt = "Target ISBN: {$isbn}\nProvide detailed metadata for the book with this exact ISBN.\nReturn a single valid JSON object with strictly these keys:\n- \"title\" (string, exact book title)\n- \"author\" (string, author name(s))\n- \"publisher\" (string, publishing house / yayınevi)\n- \"year\" (string, 4-digit publication year e.g. \"2021\")\n- \"pages\" (integer, total page count e.g. 350)\n- \"category\" (string, book genre/category e.g. \"Edebiyat\", \"Roman\", \"Tarih\")\n- \"isbn\" (string, standard 13-digit ISBN)\nIf unknown or not found, set error to \"Not found\". Respond ONLY with valid JSON.";
+  $payload = json_encode([
+    'contents' => [['parts' => [['text' => $prompt]]]],
+    'generationConfig' => ['responseMimeType' => 'application/json', 'temperature' => 0.1]
+  ], JSON_UNESCAPED_UNICODE);
+  foreach($models as $m){
+    $url = 'https://generativelanguage.googleapis.com/v1beta/models/'.$m.':generateContent?key='.urlencode($k);
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+      CURLOPT_RETURNTRANSFER => 1,
+      CURLOPT_POST => 1,
+      CURLOPT_POSTFIELDS => $payload,
+      CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+      CURLOPT_TIMEOUT => 12,
+      CURLOPT_SSL_VERIFYPEER => 0
+    ]);
+    $res = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if($code === 200 && $res){
+      $j = json_decode($res, true);
+      $txt = $j['candidates'][0]['content']['parts'][0]['text'] ?? '';
+      if($txt){
+        $txt = preg_replace('/^```(?:json)?\s*/i', '', trim($txt));
+        $txt = preg_replace('/\s*```$/i', '', $txt);
+        $b = json_decode($txt, true);
+        if(is_array($b) && !empty($b['title']) && empty($b['error'])){
+          return [
+            'title' => trim((string)$b['title']),
+            'author' => trim((string)($b['author'] ?? '')),
+            'publisher' => trim((string)($b['publisher'] ?? '')),
+            'year' => substr((string)($b['year'] ?? ''), 0, 4),
+            'pages' => clean_pages($b['pages'] ?? 0),
+            'category' => clean_category($b['category'] ?? 'Genel'),
+            'image' => (string)($b['image'] ?? ''),
+            'isbn' => $isbn,
+            'source' => 'gemini'
+          ];
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function search_gemini_title($query){
+  global $S;
+  $k = trim((string)($S['gemini_key'] ?? ''));
+  if($k === '') return [];
+  $models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+  $prompt = "Search query: \"{$query}\"\nFind up to 10 matching books (especially Turkish literature if query is in Turkish).\nReturn a JSON array of objects, each containing:\n- \"title\" (string)\n- \"author\" (string)\n- \"publisher\" (string)\n- \"year\" (string, 4-digit year)\n- \"pages\" (integer, page count e.g. 350)\n- \"category\" (string)\n- \"isbn\" (string, 13-digit ISBN if known, else empty string)\nRespond ONLY with valid JSON array.";
+  $payload = json_encode([
+    'contents' => [['parts' => [['text' => $prompt]]]],
+    'generationConfig' => ['responseMimeType' => 'application/json', 'temperature' => 0.2]
+  ], JSON_UNESCAPED_UNICODE);
+  foreach($models as $m){
+    $url = 'https://generativelanguage.googleapis.com/v1beta/models/'.$m.':generateContent?key='.urlencode($k);
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+      CURLOPT_RETURNTRANSFER => 1,
+      CURLOPT_POST => 1,
+      CURLOPT_POSTFIELDS => $payload,
+      CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+      CURLOPT_TIMEOUT => 15,
+      CURLOPT_SSL_VERIFYPEER => 0
+    ]);
+    $res = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if($code === 200 && $res){
+      $j = json_decode($res, true);
+      $txt = $j['candidates'][0]['content']['parts'][0]['text'] ?? '';
+      if($txt){
+        $txt = preg_replace('/^```(?:json)?\s*/i', '', trim($txt));
+        $txt = preg_replace('/\s*```$/i', '', $txt);
+        $arr = json_decode($txt, true);
+        if(is_array($arr)){
+          $books = [];
+          foreach($arr as $b){
+            if(!is_array($b) || empty($b['title'])) continue;
+            $books[] = [
+              'title' => trim((string)$b['title']),
+              'author' => trim((string)($b['author'] ?? '')),
+              'publisher' => trim((string)($b['publisher'] ?? '')),
+              'year' => substr((string)($b['year'] ?? ''), 0, 4),
+              'pages' => clean_pages($b['pages'] ?? 0),
+              'category' => clean_category($b['category'] ?? 'Genel'),
+              'isbn' => (string)($b['isbn'] ?? ''),
+              'image' => '',
+              'source' => 'gemini'
+            ];
+          }
+          if(!empty($books)) return $books;
+        }
+      }
+    }
+  }
+  return [];
+}
+
+function search_gemini_pubbooks($pubname){
+  global $S;
+  $k = trim((string)($S['gemini_key'] ?? ''));
+  if($k === '') return [];
+  $models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+  $prompt = "Publisher: \"{$pubname}\"\nList 15 famous or widely published books by this publisher (especially in Turkish).\nReturn a JSON array of objects with fields: title, author, publisher, year, pages, category, isbn.\nRespond ONLY with valid JSON array.";
+  $payload = json_encode([
+    'contents' => [['parts' => [['text' => $prompt]]]],
+    'generationConfig' => ['responseMimeType' => 'application/json', 'temperature' => 0.2]
+  ], JSON_UNESCAPED_UNICODE);
+  foreach($models as $m){
+    $url = 'https://generativelanguage.googleapis.com/v1beta/models/'.$m.':generateContent?key='.urlencode($k);
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+      CURLOPT_RETURNTRANSFER => 1,
+      CURLOPT_POST => 1,
+      CURLOPT_POSTFIELDS => $payload,
+      CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+      CURLOPT_TIMEOUT => 15,
+      CURLOPT_SSL_VERIFYPEER => 0
+    ]);
+    $res = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if($code === 200 && $res){
+      $j = json_decode($res, true);
+      $txt = $j['candidates'][0]['content']['parts'][0]['text'] ?? '';
+      if($txt){
+        $txt = preg_replace('/^```(?:json)?\s*/i', '', trim($txt));
+        $txt = preg_replace('/\s*```$/i', '', $txt);
+        $arr = json_decode($txt, true);
+        if(is_array($arr)){
+          $books = [];
+          foreach($arr as $b){
+            if(!is_array($b) || empty($b['title'])) continue;
+            $books[] = [
+              'title' => trim((string)$b['title']),
+              'author' => trim((string)($b['author'] ?? '')),
+              'publisher' => $pubname,
+              'year' => substr((string)($b['year'] ?? ''), 0, 4),
+              'pages' => clean_pages($b['pages'] ?? 0),
+              'category' => clean_category($b['category'] ?? 'Genel'),
+              'isbn' => (string)($b['isbn'] ?? ''),
+              'image' => '',
+              'source' => 'gemini'
+            ];
+          }
+          if(!empty($books)) return $books;
+        }
+      }
+    }
+  }
+  return [];
+}
+
+// ===== Open Library API Motoru =====
+function search_openlibrary_isbn($isbn){
+  $url = 'https://openlibrary.org/api/books?bibkeys=ISBN:'.$isbn.'&format=json&jscmd=data';
+  list($c, $h) = http_get($url, 8);
+  if($c == 200 && $h){
+    $j = json_decode($h, true);
+    $key = 'ISBN:'.$isbn;
+    if(!empty($j[$key])){
+      $b = $j[$key];
+      $title = trim((string)($b['title'] ?? ''));
+      if($title !== ''){
+        $authors = [];
+        if(!empty($b['authors']) && is_array($b['authors'])){
+          foreach($b['authors'] as $a){ if(!empty($a['name'])) $authors[] = $a['name']; }
+        }
+        $pubs = [];
+        if(!empty($b['publishers']) && is_array($b['publishers'])){
+          foreach($b['publishers'] as $p){ if(!empty($p['name'])) $pubs[] = $p['name']; }
+        }
+        $year = '';
+        if(!empty($b['publish_date'])){
+          if(preg_match('/\b(19|20)\d{2}\b/', $b['publish_date'], $m)) $year = $m[0];
+        }
+        $rawPages = $b['number_of_pages'] ?? $b['pagination'] ?? $b['pages'] ?? 0;
+        $cover = (string)($b['cover']['large'] ?? $b['cover']['medium'] ?? $b['cover']['small'] ?? '');
+        $subj = [];
+        if(!empty($b['subjects']) && is_array($b['subjects'])){
+          foreach($b['subjects'] as $s){ if(!empty($s['name'])) $subj[] = $s['name']; }
+        }
+        return [
+          'title' => $title,
+          'author' => implode(', ', $authors),
+          'publisher' => implode(', ', $pubs),
+          'year' => $year,
+          'pages' => clean_pages($rawPages),
+          'category' => clean_category('', $subj),
+          'image' => $cover,
+          'isbn' => $isbn,
+          'source' => 'openlibrary'
+        ];
+      }
+    }
+  }
+  return null;
+}
+
+function search_openlibrary_title($query){
+  $url = 'https://openlibrary.org/search.json?q='.urlencode($query).'&limit=10';
+  list($c, $h) = http_get($url, 10);
+  if($c != 200 || !$h) return [];
+  $j = json_decode($h, true);
+  $docs = $j['docs'] ?? [];
+  $books = [];
+  foreach($docs as $doc){
+    if(empty($doc['title'])) continue;
+    $authors = $doc['author_name'] ?? [];
+    $pubs = $doc['publisher'] ?? [];
+    $isbns = $doc['isbn'] ?? [];
+    $coverId = $doc['cover_i'] ?? null;
+    $cover = $coverId ? "https://covers.openlibrary.org/b/id/{$coverId}-M.jpg" : '';
+    $rawPages = $doc['number_of_pages_median'] ?? $doc['number_of_pages'] ?? 0;
+    $subjects = $doc['subject'] ?? [];
+    $books[] = [
+      'title' => (string)$doc['title'],
+      'author' => is_array($authors) ? implode(', ', array_slice($authors, 0, 3)) : (string)$authors,
+      'publisher' => is_array($pubs) ? implode(', ', array_slice($pubs, 0, 2)) : (string)$pubs,
+      'year' => (string)($doc['first_publish_year'] ?? ''),
+      'pages' => clean_pages($rawPages),
+      'category' => clean_category('', $subjects),
+      'isbn' => !empty($isbns[0]) ? (string)$isbns[0] : '',
+      'image' => $cover,
+      'source' => 'openlibrary'
+    ];
+  }
+  return $books;
+}
+
+// ===== Kitapyurdu Kazıma ve Google Books =====
+function parse_ky_book($html,$url=''){
+  $d=new DOMDocument();libxml_use_internal_errors(true);
+  $d->loadHTML('<?xml encoding="UTF-8">'.$html);libxml_clear_errors();
+  $x=new DOMXPath($d);
+  $title='';$isbn='';$author='';$publisher='';$year='';$pages=0;$img='';$category='';
+  foreach($x->query('//script[@type="application/ld+json"]') as $sc){
+    $j=json_decode(trim($sc->textContent),true);if(!$j)continue;
+    $nodes=isset($j['@graph'])?$j['@graph']:(isset($j[0])?$j:[$j]);
+    foreach($nodes as $n){
+      $t=$n['@type']??'';if(is_array($t))$t=implode(',',$t);
+      if(stripos($t,'Book')!==false||stripos($t,'Product')!==false){
+        if(!empty($n['name']))$title=trim((string)$n['name']);
+        if(!empty($n['isbn']))$isbn=(string)$n['isbn'];
+        else if(!empty($n['gtin13']))$isbn=(string)$n['gtin13'];
+        if(!empty($n['numberOfPages']))$pages=clean_pages($n['numberOfPages']);
+        if(!empty($n['author'])){
+          $au=$n['author'];$author=is_array($au)?($au['name']??implode(', ',array_filter(array_column($au,'name')))):(string)$au;
+        }
+        if(!empty($n['publisher'])){
+          $pb=$n['publisher'];$publisher=is_array($pb)?($pb['name']??''):(string)$pb;
+        }else if(!empty($n['brand'])){
+          $br=$n['brand'];$publisher=is_array($br)?($br['name']??''):(string)$br;
+        }
+        if(!empty($n['datePublished']))$year=substr((string)$n['datePublished'],0,4);
+        if(!empty($n['image']))$img=(string)$n['image'];
+      }
+    }
+  }
+  if($pages == 0 && $html){
+    if(preg_match('/Sayfa\s*Sayısı\s*:\s*<\/td>\s*<td[^>]*>\s*(\d+)/i', $html, $pm)){
+      $pages = (int)$pm[1];
+    } else if(preg_match('/Sayfa\s*Sayısı\s*:\s*(\d+)/i', $html, $pm)){
+      $pages = (int)$pm[1];
+    } else if(preg_match('/class=["\']sayfa["\'][^>]*>\s*(\d+)/i', $html, $pm)){
+      $pages = (int)$pm[1];
+    }
+  }
+  if($title===''){
+    $q=function($e)use($x){$n=$x->query($e);return $n&&$n->length?trim(preg_replace('/\s+/u',' ',$n->item(0)->textContent)):'';};
+    $title=$q('//meta[@property="og:title"]/@content')?:$q('//h1');
+    $img=$q('//meta[@property="og:image"]/@content');
+  }
+  if($title==='')return null;
+  return ['title'=>$title,'isbn'=>$isbn,'author'=>$author,'publisher'=>$publisher,'year'=>$year,'pages'=>clean_pages($pages),'image'=>$img,'category'=>clean_category($category),'source'=>'kitapyurdu'];
+}
+
+function search_ky_books($query,$maxResults=15){
+  list($c,$h,$u,$err)=http_get('https://www.kitapyurdu.com/index.php?route=product/search&filter_name='.urlencode($query));
+  if($c!=200||!$h)return [];
+  preg_match_all('#href=["\']([^"\']*/kitap/[^"\']*)["\']#i',$h,$m);
+  $rawUrls=$m[1]??[];$urls=[];
+  foreach($rawUrls as $ru){
+    if(strpos($ru,'http')!==0)$ru='https://www.kitapyurdu.com'.(strpos($ru,'/')===0?'':'/').$ru;
+    $clean=preg_replace('/\?.*$/','',$ru);
+    if(!in_array($clean,$urls))$urls[]=$clean;
+  }
+  $books=[];
+  foreach(array_slice($urls,0,$maxResults) as $url){
+    list($c2,$h2)=http_get($url);
+    if($c2==200&&$h2){
+      $b=parse_ky_book($h2,$url);
+      if($b)$books[]=$b;
+    }
+  }
+  return $books;
+}
+
+function search_google_books($query,$maxResults=20){
+  list($c,$h)=http_get('https://www.googleapis.com/books/v1/volumes?q='.urlencode($query).'&printType=books&maxResults='.$maxResults);
+  if($c!=200||!$h)return [];
+  $j=json_decode($h,true);
+  $items=$j['items']??[];$books=[];
+  foreach($items as $it){
+    $v=$it['volumeInfo']??[];
+    $ids=$v['industryIdentifiers']??[];
+    $isbnObj=null;
+    foreach($ids as $idItem){
+      if(($idItem['type']??'')=='ISBN_13'||($idItem['type']??'')=='ISBN_10'){$isbnObj=$idItem;break;}
+    }
+    $isbn=$isbnObj?$isbnObj['identifier']:'';
+    if(!$isbn&&!empty($v['title']))$isbn='GB-'.md5($v['title']);
+    if(empty($v['title']))continue;
+    $au=$v['authors']??[];
+    $rawPages = $v['pageCount'] ?? $v['printedPageCount'] ?? 0;
+    $books[]=[
+      'title'=>$v['title'].(!empty($v['subtitle'])?': '.$v['subtitle']:''),
+      'isbn'=>$isbn,
+      'author'=>is_array($au)?implode(', ',$au):(string)$au,
+      'publisher'=>(string)($v['publisher']??''),
+      'year'=>substr((string)($v['publishedDate']??''),0,4),
+      'pages'=>clean_pages($rawPages),
+      'image'=>(string)($v['imageLinks']['thumbnail']??$v['imageLinks']['smallThumbnail']??''),
+      'category'=>clean_category($v['categories'][0] ?? ''),
+      'source'=>'google'
+    ];
+  }
+  return $books;
+}
+
+function cache_get($isbn){$f=__DIR__.'/data/cache/v2_'.$isbn.'.json';if(is_file($f)&&filemtime($f)>time()-30*86400){$j=json_decode(file_get_contents($f),true);return is_array($j)?$j:null;}return null;}
+function cache_put($isbn,$v){$d=__DIR__.'/data/cache';if(!is_dir($d))@mkdir($d,0750,true);@file_put_contents("$d/v2_$isbn.json",json_encode($v,JSON_UNESCAPED_UNICODE),LOCK_EX);}
+
+if($a=='title'){
+  $q=trim((string)($_GET['q']??''));
+  if(mb_strlen($q)<2)out(400,['ok'=>0,'code'=>'BAD_QUERY','err'=>'Kitap adı en az 2 karakter olmalı']);
+  try{
+    $idbBooks = search_isbndb_title($q);
+    $gemini = search_gemini_title($q);
+    $ol = search_openlibrary_title($q);
+    $ky = search_ky_books($q, 8);
+    $gb = search_google_books($q, 10);
+    $seen = []; $merged = [];
+    foreach(array_merge($idbBooks, $gemini, $ol, $ky, $gb) as $b){
+      $key = $b['isbn'] ?: mb_strtolower($b['title'], 'UTF-8');
+      if(isset($seen[$key])) continue;
+      $seen[$key] = 1; $merged[] = $b;
+    }
+    out(200,['ok'=>1,'books'=>$merged]);
+  }catch(Throwable $e){out(502,['ok'=>0,'code'=>'SOURCE_ERROR','err'=>'Arama yapılırken hata oluştu']);}
+}
+
+if($a=='isbn'){
+  $rawIsbn=$_GET['isbn']??'';
+  $isbn=isbn_norm($rawIsbn);
+  if(!$isbn)out(400,['ok'=>0,'code'=>'INVALID_ISBN','err'=>'Geçersiz ISBN formatı']);
+  try{
+    $b=cache_get($isbn);
+
+    // 1. ISBNdb API (Öncelikli: Key tanımlı ise ISBNdb'den çeker)
+    if(!$b && !empty($S['isbndb_key'])){
+      $b = search_isbndb_isbn($isbn);
+    }
+
+    // 2. Gemini API (Key tanımlı ise)
+    if(!$b && !empty($S['gemini_key'])){
+      $b = search_gemini_isbn($isbn);
+    }
+
+    // 3. Open Library API (Ücretsiz ve Key gerektirmez)
+    if(!$b){
+      $b = search_openlibrary_isbn($isbn);
+    }
+
+    // 4. Kitapyurdu Kazıma
+    if(!$b){
+      $ky = search_ky_books($isbn, 1);
+      if(!empty($ky[0])) $b = $ky[0];
+    }
+
+    // 5. Google Books
+    if(!$b){
+      $gb = search_google_books('isbn:'.$isbn, 1);
+      if(!empty($gb[0])) $b = $gb[0];
+    }
+
+    // Eksik alan tamamlama (Yayınevi, Sayfa sayısı vb. boş geldiyse diğer motorlardan tamamlama yapılır)
+    if($b && (empty($b['pages']) || empty($b['publisher']) || empty($b['author']) || empty($b['year']))){
+      $sources = [];
+      if(!empty($S['isbndb_key']) && ($b['source'] ?? '') !== 'isbndb') $sources[] = search_isbndb_isbn($isbn);
+      if(!empty($S['gemini_key']) && ($b['source'] ?? '') !== 'gemini') $sources[] = search_gemini_isbn($isbn);
+      if(($b['source'] ?? '') !== 'openlibrary') $sources[] = search_openlibrary_isbn($isbn);
+
+      foreach($sources as $alt){
+        if(!$alt) continue;
+        if(empty($b['author']) && !empty($alt['author'])) $b['author'] = $alt['author'];
+        if(empty($b['publisher']) && !empty($alt['publisher'])) $b['publisher'] = $alt['publisher'];
+        if(empty($b['pages']) && !empty($alt['pages'])) $b['pages'] = clean_pages($alt['pages']);
+        if(empty($b['year']) && !empty($alt['year'])) $b['year'] = $alt['year'];
+        if(empty($b['category']) && !empty($alt['category'])) $b['category'] = clean_category($alt['category']);
+        if(empty($b['image']) && !empty($alt['image'])) $b['image'] = $alt['image'];
+      }
+    }
+
+    if($b){
+      $b['isbn']=$isbn;
+      cache_put($isbn,$b);
+      out(200,['ok'=>1,'book'=>$b]);
+    }
+    out(404,['ok'=>0,'code'=>'NOT_FOUND','err'=>'Kitap bulunamadı']);
+  }catch(Throwable $e){out(502,['ok'=>0,'code'=>'SOURCE_ERROR','err'=>'Kaynak sitelere ulaşılamadı: '.$e->getMessage()]);}
+}
+
+if($a=='pubs'){
+  $q=trim((string)($_GET['q']??''));if($q==='')out(400,['ok'=>0,'err'=>'Arama kelimesi girilmedi']);
+  $presets=['Çamlıca Yayınları','Çamlıca Çocuk Yayınları','Hasbahçe Yayınları','Yedi Kıta','İnsan ve Hayat','Fazilet Neşriyat','Semerkand Yayınları','TÜBİTAK Yayınları','Diyanet İşleri Başkanlığı','Timaş Yayınları','Yapı Kredi Yayınları','Can Yayınları','İş Bankası Kültür Yayınları'];
+  $matched=[];
+  foreach($presets as $p){
+    if(mb_stripos($p,$q,0,'UTF-8')!==false||mb_stripos($q,$p,0,'UTF-8')!==false)$matched[]=$p;
+  }
+  if(empty($matched))$matched[]=$q;
+  out(200,['ok'=>1,'names'=>array_values(array_unique($matched))]);
+}
+
+if($a=='pubbooks'){
+  $nm=trim((string)($_GET['name']??''));$pg=max(1,(int)($_GET['page']??1));
+  if($nm==='')out(400,['ok'=>0,'err'=>'Yayınevi adı gerekli']);
+  try{
+    $idbBooks = search_isbndb_pubbooks($nm, $pg);
+    $gemini = search_gemini_pubbooks($nm);
+    $ol = search_openlibrary_title($nm);
+    $ky = search_ky_books($nm, 15);
+    $gb = search_google_books('inpublisher:"'.$nm.'"', 15);
+    $seen=[];$merged=[];
+    foreach(array_merge($idbBooks,$gemini,$ol,$ky,$gb) as $b){
+      $k=$b['isbn']?:mb_strtolower($b['title'],'UTF-8');
+      if(isset($seen[$k]))continue;
+      $seen[$k]=1;$merged[]=$b;
+    }
+    out(200,['ok'=>1,'books'=>$merged,'more'=>count($merged)>=15]);
+  }catch(Throwable $e){
+    out(502,['ok'=>0,'err'=>'Yayınevi kitapları getirilirken hata oluştu: '.$e->getMessage()]);
+  }
+}
+
+out(404,['ok'=>0,'err'=>'Bilinmeyen istek']);
