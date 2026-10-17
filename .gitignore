@@ -1,0 +1,19 @@
+# Hassas Konfigürasyon ve Kimlik Bilgileri
+config.php
+.env
+.migrated
+
+# Eski JSON Veri ve Önbellek Klasörleri
+data/
+data/cache/
+*.json.bak
+
+# Log Dosyaları
+*.log
+error_log
+
+# İşletim Sistemi ve Editör Dosyaları
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

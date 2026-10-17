@@ -1,0 +1,111 @@
+/* ==========================================================================
+   Fihrist - Kütüphane Yönetim Sistemi Özel Stilleri
+   ========================================================================== */
+
+/* Özel Kaydırma Çubuğu (Scrollbar) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.3);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.5);
+}
+
+/* Glassmorphism (Cam Efekti) Kart Sınıfları */
+.glass-card {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+}
+.dark .glass-card {
+  background: rgba(19, 25, 38, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(31, 41, 61, 0.8);
+}
+
+/* Aktif Menü Öğesi Parlama Efekti */
+.nav-item-active {
+  background: linear-gradient(90deg, rgba(0, 112, 243, 0.12) 0%, rgba(0, 112, 243, 0.02) 100%);
+  color: #0070f3 !important;
+  border-right: 3px solid #0070f3;
+}
+.dark .nav-item-active {
+  background: linear-gradient(90deg, rgba(54, 158, 255, 0.18) 0%, rgba(54, 158, 255, 0.02) 100%);
+  color: #369eff !important;
+  border-right: 3px solid #369eff;
+}
+
+/* Hafif Nabız / Animasyon Efekti */
+@keyframes subtlePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.03); }
+}
+.animate-pulse-subtle {
+  animation: subtlePulse 3s infinite ease-in-out;
+}
+
+/* Mobil Uyumluluk ve Duyarlı Düzen */
+@supports (height: 100dvh) {
+  .h-screen { height: 100dvh; }
+}
+
+#sbBackdrop {
+  display: none;
+}
+
+@media (max-width: 1023px) {
+  #sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    transform: translateX(-100%);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.35);
+    z-index: 45;
+  }
+  #sidebar.open {
+    transform: none;
+  }
+  #sidebar.open + #sbBackdrop {
+    display: block;
+  }
+}
+
+.fixed.inset-0.z-50 > div {
+  max-height: 92vh;
+  overflow-y: auto;
+}
+
+@media (max-width: 640px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+  #modalLoanBook .grid-cols-2,
+  #modalAddMember .grid-cols-2,
+  #modalAdmin .grid-cols-2,
+  #modalAddBook .grid-cols-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Güvenlik Uyarısı Banner Stili */
+.security-alert-banner {
+  background: linear-gradient(90deg, #dc2626 0%, #b91c1c 100%);
+  color: #ffffff;
+  padding: 0.6rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}

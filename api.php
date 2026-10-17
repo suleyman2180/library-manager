@@ -3,25 +3,27 @@ session_set_cookie_params(['httponly'=>true,'samesite'=>'Strict','secure'=>!empt
 session_start();
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
-$D = __DIR__ . '/data';
-if (!is_dir($D)) mkdir($D, 0750, true);
-$F = ['u' => 'users.json', 'b' => 'book.json', 'l' => 'loans.json'];
-function rd($f, $d) { $p = __DIR__ . "/data/$f"; if (!is_file($p)) return $d; $j = json_decode(file_get_contents($p), true); return $j === null ? $d : $j; }
-function wr($f, $v) { $p = __DIR__ . "/data/$f"; file_put_contents($p, json_encode($v, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX); }
+require_once __DIR__ . '/db.php';
 function out($c,$v){http_response_code($c);echo json_encode($v,JSON_UNESCAPED_UNICODE);exit;}
+set_exception_handler(function($e){error_log('Fihrist DB: '.$e->getMessage());out(500,['ok'=>0,'code'=>'DB_ERROR','err'=>'Veritabanı hatası']);});
 function pub($S){return array_values(array_map(function($x){return ['id'=>$x['id'],'name'=>$x['name'],'username'=>$x['username']];},$S['admins']));}
 function me($S){foreach($S['admins'] as $x)if($x['id']===($_SESSION['aid']??''))return $x;return null;}
 function meinfo($S){$m=me($S);return $m?['id'=>$m['id'],'name'=>$m['name'],'username'=>$m['username']]:null;}
 $in=json_decode(file_get_contents('php://input'),true);if(!is_array($in))$in=[];
 $a=$_GET['a']??'';$post=$_SERVER['REQUEST_METHOD']=='POST';
-$S=rd('ayarlar.json',[]);if(!is_array($S))$S=[];
-if(empty($S['admins'])){ // ilk kurulum / eski PIN sürümünden geçiş
-  $h=$S['hash']??password_hash('1234',PASSWORD_DEFAULT);
-  $S['admins']=[['id'=>'a1','username'=>'admin','name'=>'Yönetici','hash'=>$h]];
-  unset($S['hash']);if(empty($S['theme']))$S['theme']='dark';wr('ayarlar.json',$S);
+$pdo=pdo();
+if(!admins_all()){ // ilk kurulum: varsayılan yönetici admin / 1234
+  $pdo->prepare("INSERT INTO admins (id,pos,username,name,hash) VALUES ('a1',0,'admin','Yönetici',?)")->execute([password_hash('1234',PASSWORD_DEFAULT)]);
 }
-foreach($F as $f)if(!is_file("$D/$f"))wr($f,[]);
-if($a=='brand'){$st=$S['settings']??[];out(200,['name'=>($st['name']??'')?:'Fihrist','slogan'=>($st['slogan']??'')?:'Kütüphane Yönetimi']);}
+$kv=kv_all();
+$S=[
+  'admins'=>admins_all(),
+  'settings'=>(($t=json_decode($kv['app_settings']??'[]',true))&&is_array($t))?$t:[],
+  'theme'=>$kv['theme']??'dark',
+  'isbndb_key'=>$kv['isbndb_key']??'',
+  'gemini_key'=>$kv['gemini_key']??'',
+];
+if($a=='brand'){$st=$S['settings'];out(200,['name'=>($st['name']??'')?:'Fihrist','slogan'=>($st['slogan']??'')?:'Kütüphane Yönetimi']);}
 if($a=='login'&&$post){
   $u=trim((string)($in['username']??''));$p=(string)($in['password']??'');
   foreach($S['admins'] as $x)if(strcasecmp($x['username'],$u)==0&&password_verify($p,$x['hash'])){session_regenerate_id(true);$_SESSION['aid']=$x['id'];out(200,['ok'=>1]);}
@@ -29,11 +31,126 @@ if($a=='login'&&$post){
 }
 if($a=='logout'){$_SESSION=[];session_destroy();out(200,['ok'=>1]);}
 $me=me($S);if(!$me)out(401,['ok'=>0]);
-if($a=='get'){$r=[];foreach($F as $k=>$f)$r[$k]=rd($f,[]);$r['theme']=$S['theme']??'dark';$r['s']=(object)($S['settings']??[]);$r['admins']=pub($S);$r['me']=meinfo($S);$r['hasKey']=!empty($S['isbndb_key']);$r['hasGeminiKey']=!empty($S['gemini_key']);out(200,$r);}
+if($a=='get'){
+  $is_default_password = false;
+  if ($me && strcasecmp($me['username'], 'admin') === 0 && password_verify('1234', $me['hash'])) {
+    $is_default_password = true;
+  }
+  $r=['u'=>read_table('members'),'b'=>read_table('books'),'l'=>read_table('loans')];
+  $r['theme']=$S['theme'];$r['s']=(object)$S['settings'];$r['admins']=pub($S);$r['me']=meinfo($S);
+  $r['hasKey']=!empty($S['isbndb_key']);$r['hasGeminiKey']=!empty($S['gemini_key']);
+  $r['is_default_password']=$is_default_password;
+  out(200,$r);
+}
+
+// ---------- Tekil CRUD Endpointleri (Race Condition Çözümü) ----------
+if($a=='book_add'&&$post){
+  $title=trim((string)($in['title']??''));
+  $author=trim((string)($in['author']??''));
+  if(!$title||!$author)out(400,['ok'=>0,'err'=>'Kitap adı ve yazar zorunludur']);
+  $id=(int)($in['id']??(int)(microtime(true)*1000));
+  $tot=max(1,(int)($in['totalStock']??1));
+  $cur=max(0,(int)($in['currentStock']??$tot));
+  $st=$pdo->prepare("INSERT INTO books (id,pos,title,author,category,isbn,total_stock,current_stock,color,year,pages,publisher) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
+  $st->execute([$id,0,$title,$author,(string)($in['category']??'Genel'),(string)($in['isbn']??''),$tot,$cur,(string)($in['color']??'#0070f3'),(string)($in['year']??''),(int)($in['pages']??0),(string)($in['publisher']??'')]);
+  out(201,['ok'=>1,'id'=>$id]);
+}
+
+if($a=='book_update'&&$post){
+  $id=(int)($in['id']??0);
+  if(!$id)out(400,['ok'=>0,'err'=>'Kitap ID zorunludur']);
+  $tot=max(1,(int)($in['totalStock']??1));
+  $cur=max(0,(int)($in['currentStock']??$tot));
+  $st=$pdo->prepare("UPDATE books SET title=?, author=?, category=?, isbn=?, total_stock=?, current_stock=?, color=?, year=?, pages=?, publisher=? WHERE id=?");
+  $st->execute([(string)($in['title']??''),(string)($in['author']??''),(string)($in['category']??'Genel'),(string)($in['isbn']??''),$tot,$cur,(string)($in['color']??'#0070f3'),(string)($in['year']??''),(int)($in['pages']??0),(string)($in['publisher']??''),$id]);
+  out(200,['ok'=>1]);
+}
+
+if($a=='book_delete'&&$post){
+  $id=(int)($in['id']??0);
+  if(!$id)out(400,['ok'=>0,'err'=>'Kitap ID zorunludur']);
+  $chk=$pdo->prepare("SELECT COUNT(*) FROM loans WHERE book_id=? AND status IN ('ACTIVE','OVERDUE')");
+  $chk->execute([$id]);
+  if((int)$chk->fetchColumn()>0)out(400,['ok'=>0,'err'=>'Bu kitap ödünçte olduğu için silinemez']);
+  $pdo->prepare("DELETE FROM books WHERE id=?")->execute([$id]);
+  out(200,['ok'=>1]);
+}
+
+if($a=='member_add'&&$post){
+  $name=trim((string)($in['name']??''));
+  if(!$name)out(400,['ok'=>0,'err'=>'Üye adı zorunludur']);
+  $id=(int)($in['id']??(int)(microtime(true)*1000));
+  $st=$pdo->prepare("INSERT INTO members (id,pos,name,email,phone,role,active_loans,avatar) VALUES (?,?,?,?,?,?,0,?)");
+  $st->execute([$id,0,$name,(string)($in['email']??''),(string)($in['phone']??''),(string)($in['role']??'Genel Okuyucu'),(string)($in['avatar']??'')]);
+  out(201,['ok'=>1,'id'=>$id]);
+}
+
+if($a=='member_update'&&$post){
+  $id=(int)($in['id']??0);
+  if(!$id)out(400,['ok'=>0,'err'=>'Üye ID zorunludur']);
+  $st=$pdo->prepare("UPDATE members SET name=?, email=?, phone=?, role=? WHERE id=?");
+  $st->execute([(string)($in['name']??''),(string)($in['email']??''),(string)($in['phone']??''),(string)($in['role']??'Genel Okuyucu'),$id]);
+  out(200,['ok'=>1]);
+}
+
+if($a=='member_delete'&&$post){
+  $id=(int)($in['id']??0);
+  if(!$id)out(400,['ok'=>0,'err'=>'Üye ID zorunludur']);
+  $chk=$pdo->prepare("SELECT COUNT(*) FROM loans WHERE member_id=? AND status IN ('ACTIVE','OVERDUE')");
+  $chk->execute([$id]);
+  if((int)$chk->fetchColumn()>0)out(400,['ok'=>0,'err'=>'Bu üyenin üzerinde aktif ödünç kitap var, silinemez']);
+  $pdo->prepare("DELETE FROM members WHERE id=?")->execute([$id]);
+  out(200,['ok'=>1]);
+}
+
+if($a=='loan_create'&&$post){
+  $book_id=(int)($in['bookId']??0);
+  $member_id=(int)($in['memberId']??0);
+  if(!$book_id||!$member_id)out(400,['ok'=>0,'err'=>'Kitap ve Üye seçimi zorunludur']);
+  $pdo->beginTransaction();
+  try{
+    $stB=$pdo->prepare("SELECT current_stock FROM books WHERE id=? FOR UPDATE");
+    $stB->execute([$book_id]);
+    $stock=(int)$stB->fetchColumn();
+    if($stock<1){$pdo->rollBack();out(400,['ok'=>0,'err'=>'Bu kitap stokta kalmadı']);}
+    $pdo->prepare("UPDATE books SET current_stock=current_stock-1 WHERE id=?")->execute([$book_id]);
+    $pdo->prepare("UPDATE members SET active_loans=active_loans+1 WHERE id=?")->execute([$member_id]);
+    $lid='LN-'.random_int(100000,999999);
+    $pdo->prepare("INSERT INTO loans (id,pos,book_id,member_id,issue_date,due_date,status) VALUES (?,0,?,?,?,?,?)")->execute([$lid,$book_id,$member_id,(string)($in['issueDate']??date('Y-m-d')),(string)($in['dueDate']??date('Y-m-d',strtotime('+14 days'))),'ACTIVE']);
+    $pdo->commit();
+    out(201,['ok'=>1,'id'=>$lid]);
+  }catch(Throwable $e){$pdo->rollBack();throw $e;}
+}
+
+if($a=='loan_return'&&$post){
+  $lid=(string)($in['id']??'');
+  if(!$lid)out(400,['ok'=>0,'err'=>'Ödünç ID zorunludur']);
+  $pdo->beginTransaction();
+  try{
+    $stL=$pdo->prepare("SELECT book_id, member_id, status FROM loans WHERE id=? FOR UPDATE");
+    $stL->execute([$lid]);
+    $row=$stL->fetch();
+    if(!$row){$pdo->rollBack();out(404,['ok'=>0,'err'=>'Ödünç kaydı bulunamadı']);}
+    if($row['status']!=='RETURNED'){
+      $pdo->prepare("UPDATE books SET current_stock=current_stock+1 WHERE id=?")->execute([$row['book_id']]);
+      $pdo->prepare("UPDATE members SET active_loans=GREATEST(0, active_loans-1) WHERE id=?")->execute([$row['member_id']]);
+      $pdo->prepare("UPDATE loans SET status='RETURNED', return_date=? WHERE id=?")->execute([date('Y-m-d'),$lid]);
+    }
+    $pdo->commit();
+    out(200,['ok'=>1]);
+  }catch(Throwable $e){$pdo->rollBack();throw $e;}
+}
 if($a=='save'&&$post){
-  foreach($F as $k=>$f)if(isset($in[$k])&&is_array($in[$k]))wr($f,array_values($in[$k]));
-  if(isset($in['s'])&&is_array($in['s']))$S['settings']=$in['s'];
-  $S['theme']=(($in['theme']??'')=='light')?'light':'dark';wr('ayarlar.json',$S);out(200,['ok'=>1]);
+  $pdo->beginTransaction();
+  try{
+    if(isset($in['u'])&&is_array($in['u']))sync_table('members',$in['u']);
+    if(isset($in['b'])&&is_array($in['b']))sync_table('books',$in['b']);
+    if(isset($in['l'])&&is_array($in['l']))sync_table('loans',$in['l']);
+    if(isset($in['s'])&&is_array($in['s']))kv_set('app_settings',json_encode($in['s'],JSON_UNESCAPED_UNICODE));
+    kv_set('theme',(($in['theme']??'')=='light')?'light':'dark');
+    $pdo->commit();
+  }catch(Throwable $e){$pdo->rollBack();throw $e;}
+  out(200,['ok'=>1]);
 }
 if($a=='admin_save'&&$post){
   $nm=trim((string)($in['name']??''));$un=trim((string)($in['username']??''));$pw=(string)($in['password']??'');$id=(string)($in['id']??'');
@@ -41,35 +158,36 @@ if($a=='admin_save'&&$post){
   foreach($S['admins'] as $x)if(strcasecmp($x['username'],$un)==0&&$x['id']!==$id)out(400,['ok'=>0,'err'=>'Bu kullanıcı adı kullanılıyor']);
   if($id===''){
     if(strlen($pw)<6)out(400,['ok'=>0,'err'=>'Şifre en az 6 karakter olmalı']);
-    $S['admins'][]=['id'=>bin2hex(random_bytes(4)),'username'=>$un,'name'=>$nm,'hash'=>password_hash($pw,PASSWORD_DEFAULT)];
+    $pdo->prepare("INSERT INTO admins (id,pos,username,name,hash) VALUES (?,?,?,?,?)")->execute([bin2hex(random_bytes(4)),count($S['admins']),$un,$nm,password_hash($pw,PASSWORD_DEFAULT)]);
   }else{
-    $found=false;
-    foreach($S['admins'] as $i=>$x)if($x['id']===$id){
-      $found=true;$S['admins'][$i]['name']=$nm;$S['admins'][$i]['username']=$un;
-      if($pw!==''){if(strlen($pw)<6)out(400,['ok'=>0,'err'=>'Şifre en az 6 karakter olmalı']);$S['admins'][$i]['hash']=password_hash($pw,PASSWORD_DEFAULT);}
-    }
+    $found=false;foreach($S['admins'] as $x)if($x['id']===$id)$found=true;
     if(!$found)out(404,['ok'=>0,'err'=>'Yönetici bulunamadı']);
+    $pdo->prepare("UPDATE admins SET name=?, username=? WHERE id=?")->execute([$nm,$un,$id]);
+    if($pw!==''){
+      if(strlen($pw)<6)out(400,['ok'=>0,'err'=>'Şifre en az 6 karakter olmalı']);
+      $pdo->prepare("UPDATE admins SET hash=? WHERE id=?")->execute([password_hash($pw,PASSWORD_DEFAULT),$id]);
+    }
   }
-  wr('ayarlar.json',$S);out(200,['ok'=>1,'admins'=>pub($S),'me'=>meinfo($S)]);
+  $S['admins']=admins_all();out(200,['ok'=>1,'admins'=>pub($S),'me'=>meinfo($S)]);
 }
 if($a=='admin_del'&&$post){
   $id=(string)($in['id']??'');
   if($id===$me['id'])out(400,['ok'=>0,'err'=>'Kendi hesabınızı silemezsiniz']);
   if(count($S['admins'])<2)out(400,['ok'=>0,'err'=>'En az bir yönetici kalmalı']);
-  $S['admins']=array_values(array_filter($S['admins'],function($x)use($id){return $x['id']!==$id;}));
-  wr('ayarlar.json',$S);out(200,['ok'=>1,'admins'=>pub($S)]);
+  $pdo->prepare("DELETE FROM admins WHERE id=?")->execute([$id]);
+  $S['admins']=admins_all();out(200,['ok'=>1,'admins'=>pub($S)]);
 }
 if($a=='password'&&$post){
   $old=(string)($in['old']??'');$new=(string)($in['new']??'');
   if(!password_verify($old,$me['hash']))out(400,['ok'=>0,'err'=>'Mevcut şifre yanlış']);
   if(strlen($new)<6)out(400,['ok'=>0,'err'=>'Yeni şifre en az 6 karakter olmalı']);
-  foreach($S['admins'] as $i=>$x)if($x['id']===$me['id'])$S['admins'][$i]['hash']=password_hash($new,PASSWORD_DEFAULT);
-  wr('ayarlar.json',$S);out(200,['ok'=>1]);
+  $pdo->prepare("UPDATE admins SET hash=? WHERE id=?")->execute([password_hash($new,PASSWORD_DEFAULT),$me['id']]);
+  out(200,['ok'=>1]);
 }
 
 // ---------- API Key İşlemleri (Gemini & ISBNdb) ----------
-if($a=='isbndb_key'&&$post){$k=trim((string)($in['key']??''));if($k==='')unset($S['isbndb_key']);else $S['isbndb_key']=$k;wr('ayarlar.json',$S);out(200,['ok'=>1,'hasKey'=>$k!=='']);}
-if($a=='gemini_key'&&$post){$k=trim((string)($in['key']??''));if($k==='')unset($S['gemini_key']);else $S['gemini_key']=$k;wr('ayarlar.json',$S);out(200,['ok'=>1,'hasKey'=>$k!=='']);}
+if($a=='isbndb_key'&&$post){$k=trim((string)($in['key']??''));if($k==='')kv_del('isbndb_key');else kv_set('isbndb_key',$k);out(200,['ok'=>1,'hasKey'=>$k!=='']);}
+if($a=='gemini_key'&&$post){$k=trim((string)($in['key']??''));if($k==='')kv_del('gemini_key');else kv_set('gemini_key',$k);out(200,['ok'=>1,'hasKey'=>$k!=='']);}
 
 function clean_pages($val){
   if(is_numeric($val)) return max(0, (int)$val);
@@ -578,8 +696,13 @@ function search_google_books($query,$maxResults=20){
   return $books;
 }
 
-function cache_get($isbn){$f=__DIR__.'/data/cache/v2_'.$isbn.'.json';if(is_file($f)&&filemtime($f)>time()-30*86400){$j=json_decode(file_get_contents($f),true);return is_array($j)?$j:null;}return null;}
-function cache_put($isbn,$v){$d=__DIR__.'/data/cache';if(!is_dir($d))@mkdir($d,0750,true);@file_put_contents("$d/v2_$isbn.json",json_encode($v,JSON_UNESCAPED_UNICODE),LOCK_EX);}
+function cache_get($isbn){
+  $st=pdo()->prepare("SELECT data FROM isbn_cache WHERE isbn=? AND updated_at > (NOW() - INTERVAL 30 DAY)");$st->execute([$isbn]);
+  $d=$st->fetchColumn();if($d===false)return null;$j=json_decode($d,true);return is_array($j)?$j:null;
+}
+function cache_put($isbn,$v){
+  try{pdo()->prepare("INSERT INTO isbn_cache (isbn,data,updated_at) VALUES (?,?,NOW()) ON DUPLICATE KEY UPDATE data=VALUES(data), updated_at=NOW()")->execute([$isbn,json_encode($v,JSON_UNESCAPED_UNICODE)]);}catch(Throwable $e){}
+}
 
 if($a=='title'){
   $q=trim((string)($_GET['q']??''));
