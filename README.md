@@ -70,13 +70,13 @@ return [
 
 ---
 
-## 🔐 Güvenlik ve İlk Giriş
+## 🔐 Güvenli İlk Kurulum
 
-1. **Varsayılan Giriş Bilgileri:**
-   - **Kullanıcı Adı:** `admin`
-   - **Şifre:** `1234`
-2. **Önemli:** Sisteme giriş yaptıktan sonra üst kısımda beliren **Güvenlik Uyarısı** doğrultusunda **Ayarlar** sekmesine giderek şifrenizi derhal güncelleyin.
-3. **API Anahtarları:** Ayarlar menüsünden Google Gemini API anahtarınızı girerek yapay zeka kitap tarama özelliğini hemen aktifleştirebilirsiniz.
+- **Varsayılan `admin / 1234` hesabı oluşturulmaz.** İlk yönetici hesabı için sunucu ortam değişkenine en az 16 karakterlik rastgele bir parola tanımlayın: `FIHRIST_INITIAL_ADMIN_PASSWORD`.
+- Bu değişkeni web sunucusu/PHP-FPM ortamına güvenli biçimde ekleyin; parolayı kaynak koda, Git deposuna veya web üzerinden indirilebilir bir dosyaya yazmayın.
+- İlk API isteği bu parola ile `admin` hesabını oluşturur. Ardından ortam değişkenini kaldırıp normal yönetici şifresini uygulama üzerinden değiştirin.
+- `config.php` dosyasını web kök dizininin dışında tutun veya web sunucusunda doğrudan erişimi engelleyin.
+- **API anahtarları:** Gemini/ISBN sağlayıcı anahtarlarını yalnızca yönetici oturumu üzerinden girin; hiçbir zaman istemci JavaScript'ine eklemeyin.
 
 ---
 
