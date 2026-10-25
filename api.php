@@ -12,8 +12,16 @@ function meinfo($S){$m=me($S);return $m?['id'=>$m['id'],'name'=>$m['name'],'user
 $in=json_decode(file_get_contents('php://input'),true);if(!is_array($in))$in=[];
 $a=$_GET['a']??'';$post=$_SERVER['REQUEST_METHOD']=='POST';
 $pdo=pdo();
-if(!admins_all()){ // ilk kurulum: varsayılan yönetici admin / 1234
-  $pdo->prepare("INSERT INTO admins (id,pos,username,name,hash) VALUES ('a1',0,'admin','Yönetici',?)")->execute([password_hash('1234',PASSWORD_DEFAULT)]);
+if(!admins_all()) {
+  // Güvenli ilk kurulum: varsayılan/parola tahmini yapılabilir hesap oluşturma.
+  $initialPassword = getenv('FIHRIST_INITIAL_ADMIN_PASSWORD') ?: '';
+  if (strlen($initialPassword) < 16) {
+    out(503, ['ok'=>0, 'code'=>'INITIAL_SETUP_REQUIRED',
+      'err'=>'İlk yönetici hesabı oluşturulmadı. Sunucuda FIHRIST_INITIAL_ADMIN_PASSWORD değişkenine en az 16 karakterlik güçlü bir parola tanımlayın.']);
+  }
+  $pdo->prepare("INSERT INTO admins (id,pos,username,name,hash) VALUES ('a1',0,'admin','Yönetici',?)")
+      ->execute([password_hash($initialPassword, PASSWORD_DEFAULT)]);
+  unset($initialPassword);
 }
 $kv=kv_all();
 $S=[
