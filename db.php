@@ -59,7 +59,7 @@ function col_map($t) {
   return $m[$t];
 }
 
-// Gelen diziyi tabloyla eşitler: var olanı günceller, yeniyi ekler, listede olmayanı siler. Sıra korunur.
+// Gelen diziyi ekler/günceller. Toplu kaydetme isteğinde listede olmayan satırlar SİLİNMEZ; silme yalnızca tekil, yetkilendirilmiş CRUD endpointleriyle yapılmalıdır.
 function sync_table($t, $rows) {
   $p = pdo(); $cols = col_map($t); $strId = ($t === 'loans');
   $names = array_merge(['id','pos'], array_column($cols, 0), ['extra']);
@@ -81,11 +81,8 @@ function sync_table($t, $rows) {
     $vals[] = $extra ? json_encode($extra, JSON_UNESCAPED_UNICODE) : null;
     $st->execute($vals);
   }
-  $have = $p->query("SELECT id FROM $t")->fetchAll(PDO::FETCH_COLUMN);
-  $keepSet = array_flip(array_map('strval', $keep));
-  $del = array_values(array_filter($have, function($x) use ($keepSet){ return !isset($keepSet[(string)$x]); }));
-  foreach (array_chunk($del, 500) as $ch)
-    $p->prepare("DELETE FROM $t WHERE id IN (" . implode(',', array_fill(0, count($ch), '?')) . ")")->execute($ch);
+  // Bilerek toplu kayıtta DELETE çalıştırmıyoruz: eski istemci/sekme tüm kayıtları silemesin.
+  // Silme işlemleri book_delete/member_delete gibi tekil endpointlerden yapılır.
 }
 
 // Tabloyu eski JSON dizisiyle birebir aynı şekilde geri verir.
