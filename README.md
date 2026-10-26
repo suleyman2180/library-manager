@@ -23,7 +23,7 @@
 - **📊 Canlı İstatistikler & Grafikler:**
   Chart.js destekli gösterge paneli: Kategori dağılımları, aktif ödünçler, geciken kitaplar ve üye istatistikleri.
 - **👤 Üye Girişi:** Yönetici tarafından oluşturulan kullanıcı adı/parola ile üyeler yalnızca kendi ödünç geçmişlerini ve iade tarihlerini görüntüler.
-- **📤 Rapor ve Yedek:** Yönetici CSV ödünç raporu indirebilir; kitap, üye, ödünç ve temel ayarların JSON yedeğini alabilir. Parolalar ve API anahtarları yedeğe eklenmez.
+- **📤 Rapor ve Tam Yedek:** Yönetici CSV raporunu ve tek ZIP içinde veritabanının SQL + JSON dökümünü ve `/data` dosyalarını indirebilir. Tam yedek parola hashleri ve veritabanındaki API anahtarları gibi hassas bilgiler içerebildiğinden yalnızca yönetici oturumuna açıktır.
 - **📚 Ödünç Güvenliği:** Stok ve üye başına ödünç limiti sunucu tarafında doğrulanır.
 - **🎨 Modüler & Duyarlı Arayüz:**
   Tailwind CSS ve modern cam efekti (Glassmorphism), Koyu/Açık (Dark/Light) tema geçişi ve mobilde tam uyumlu düzen.
