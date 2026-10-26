@@ -12,6 +12,7 @@ function pdo() {
     PDO::ATTR_EMULATE_PREPARES => false,
   ]);
   try { $p->query('SELECT 1 FROM isbn_cache LIMIT 1'); } catch (PDOException $e) { db_init($p); }
+  $p->exec("CREATE TABLE IF NOT EXISTS trash (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, entity VARCHAR(24) NOT NULL, record_id VARCHAR(64) NOT NULL, label VARCHAR(255) NOT NULL, payload LONGTEXT NOT NULL, deleted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, KEY idx_trash_entity (entity), KEY idx_trash_deleted (deleted_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
   // Ensure member-login columns exist even when the rest of the database is already initialized.
   try {
     $memberCols = [];
