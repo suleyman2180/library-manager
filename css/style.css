@@ -109,3 +109,14 @@
   justify-content: space-between;
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
+
+
+/* Yazdırma / PDF çıktısı: rapor içeriğini baskıya uygun hale getir. */
+@media print {
+  #sidebar, #loginOverlay, #memberPortal, .no-print, button, a { display: none !important; }
+  #appShell { display: block !important; height: auto !important; overflow: visible !important; }
+  body { display: block !important; height: auto !important; overflow: visible !important; background: #fff !important; color: #111 !important; }
+  main, .tab-content:not(.hidden) { display: block !important; height: auto !important; overflow: visible !important; }
+  .glass-card { box-shadow: none !important; break-inside: avoid; }
+  canvas { max-width: 100% !important; }
+}
