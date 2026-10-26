@@ -139,7 +139,7 @@ if($a=='loan_create'&&$post){
     if($stock===false || (int)$stock<1){$pdo->rollBack();out(400,['ok'=>0,'err'=>'Bu kitap stokta kalmadı']);}
     $stM=$pdo->prepare("SELECT active_loans FROM members WHERE id=? FOR UPDATE"); $stM->execute([$member_id]); $memberLoans=$stM->fetchColumn();
     if($memberLoans===false){$pdo->rollBack();out(404,['ok'=>0,'err'=>'Üye bulunamadı']);}
-    $maxLoans=max(1,min(20,(int)($S['settings']['maxLoansPerMember']??5)));
+    $maxLoans=max(1,min(20,(int)($S['settings']['max']??3)));
     if((int)$memberLoans >= $maxLoans){$pdo->rollBack();out(400,['ok'=>0,'err'=>'Üye başına ödünç sınırına ulaşıldı']);}
     $pdo->prepare("UPDATE books SET current_stock=current_stock-1 WHERE id=?")->execute([$book_id]);
     $pdo->prepare("UPDATE members SET active_loans=active_loans+1 WHERE id=?")->execute([$member_id]);
