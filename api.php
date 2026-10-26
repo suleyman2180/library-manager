@@ -55,7 +55,7 @@ function trash_record(PDO $pdo, string $entity, $id, string $label): void {
   if(!in_array($entity,['books','members','loans','admins'],true)) throw new RuntimeException('Unsupported trash entity');
   $st=$pdo->prepare("SELECT * FROM {$entity} WHERE id=? LIMIT 1"); $st->execute([$id]); $row=$st->fetch(PDO::FETCH_ASSOC);
   if(!$row) out(404,['ok'=>0,'err'=>'Kayıt bulunamadı']);
-  $pdo->prepare('INSERT INTO trash (entity,record_id,label,payload) VALUES (?,?,?,?)')->execute([$entity,(string)$id,mb_substr($label,0,255),json_encode($row,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR)]);
+  $pdo->prepare('INSERT INTO trash (entity,record_id,label,payload) VALUES (?,?,?,?)')->execute([$entity,(string)$id,substr($label,0,255),json_encode($row,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR)]);
   $pdo->prepare("DELETE FROM {$entity} WHERE id=?")->execute([$id]);
 }
 if($a==='trash_list'){
@@ -147,11 +147,11 @@ if($a=='member_update'&&$post){
   if(!$id)out(400,['ok'=>0,'err'=>'Üye ID zorunludur']);
   $name=trim((string)($in['name']??'')); $username=trim((string)($in['username']??'')); $password=(string)($in['password']??'');
   if($name==='')out(400,['ok'=>0,'err'=>'Üye adı zorunludur']);
-  if($username!=='' && !preg_match('/^[a-zA-Z0-9._-]{3,64}$/',$username))out(400,['ok'=>0,'err'=>'Kullanıcı adı 3-64 karakter olmalı']);
-  if($username!==''){$st=$pdo->prepare('SELECT COUNT(*) FROM members WHERE username=? AND id<>?');$st->execute([$username,$id]);if((int)$st->fetchColumn()>0)out(409,['ok'=>0,'err'=>'Bu üye kullanıcı adı zaten kullanılıyor']);}
+  if(!preg_match('/^[a-zA-Z0-9._-]{3,64}$/',$username))out(400,['ok'=>0,'err'=>'Kullanıcı adı 3-64 karakter olmalı']);
+  $st=$pdo->prepare('SELECT COUNT(*) FROM members WHERE username=? AND id<>?');$st->execute([$username,$id]);if((int)$st->fetchColumn()>0)out(409,['ok'=>0,'err'=>'Bu üye kullanıcı adı zaten kullanılıyor']);
   if($password!=='' && strlen($password)<10)out(400,['ok'=>0,'err'=>'Yeni parola en az 10 karakter olmalı']);
-  $sql="UPDATE members SET name=?, email=?, phone=?, role=?".($username!==''?', username=?':'')." WHERE id=?";
-  $args=[$name,(string)($in['email']??''),(string)($in['phone']??''),(string)($in['role']??'Genel Okuyucu')]; if($username!=='')$args[]=$username; $args[]=$id; $pdo->prepare($sql)->execute($args);
+  $sql="UPDATE members SET name=?, email=?, phone=?, role=?, username=? WHERE id=?";
+  $args=[$name,(string)($in['email']??''),(string)($in['phone']??''),(string)($in['role']??'Genel Okuyucu'),$username,$id]; $pdo->prepare($sql)->execute($args);
   if($password!=='')$pdo->prepare('UPDATE members SET password_hash=? WHERE id=?')->execute([password_hash($password,PASSWORD_DEFAULT),$id]);
   out(200,['ok'=>1]);
 }
