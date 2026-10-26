@@ -113,8 +113,13 @@ if($a=='book_update'&&$post){
   $st=$pdo->prepare("SELECT COUNT(*) FROM loans WHERE book_id=? AND status IN ('ACTIVE','OVERDUE')"); $st->execute([$id]); $borrowed=(int)$st->fetchColumn();
   if($tot<$borrowed)out(400,['ok'=>0,'err'=>'Toplam stok, ödünçteki kitap sayısından az olamaz (ödünçte: '.$borrowed.')']);
   $cur=$tot-$borrowed;
-  $st=$pdo->prepare("UPDATE books SET title=?, author=?, category=?, isbn=?, total_stock=?, current_stock=?, color=?, year=?, pages=?, publisher=? WHERE id=?");
-  $st->execute([trim((string)($in['title']??'')),trim((string)($in['author']??'')),(string)($in['category']??'Genel'),(string)($in['isbn']??''),$tot,$cur,(string)($in['color']??'#0070f3'),(string)($in['year']??''),(int)($in['pages']??0),(string)($in['publisher']??''),$id]);
+  $st=$pdo->prepare('SELECT extra FROM books WHERE id=?'); $st->execute([$id]); $oldExtra=json_decode((string)($st->fetchColumn() ?: '{}'),true); if(!is_array($oldExtra))$oldExtra=[];
+  $incoming=$in['extra']??[]; if(!is_array($incoming) || array_is_list($incoming) && $incoming!==[])out(400,['ok'=>0,'err'=>'Ek alanlar JSON nesnesi olmalı']);
+  foreach(['id','title','author','category','isbn','totalStock','currentStock','color','year','pages','publisher'] as $reserved)unset($incoming[$reserved]);
+  $extra=array_merge($oldExtra,$incoming);
+  $extraJson=$extra?json_encode($extra,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR):null;
+  $st=$pdo->prepare("UPDATE books SET title=?, author=?, category=?, isbn=?, total_stock=?, current_stock=?, color=?, year=?, pages=?, publisher=?, extra=? WHERE id=?");
+  $st->execute([trim((string)($in['title']??'')),trim((string)($in['author']??'')),(string)($in['category']??'Genel'),(string)($in['isbn']??''),$tot,$cur,(string)($in['color']??'#0070f3'),(string)($in['year']??''),(int)($in['pages']??0),(string)($in['publisher']??''),$extraJson,$id]);
   out(200,['ok'=>1,'currentStock'=>$cur]);
 }
 
