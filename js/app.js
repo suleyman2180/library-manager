@@ -1058,7 +1058,12 @@
       closeModal('modalAddBook');
     }
 
-    function deleteBook(bookId) {
+    async function deleteBook(bookId) {
+      if (!confirm('Bu kitabı katalogdan silmek istiyor musunuz?')) return;
+      try {
+        const result = await api('book_delete', { id: bookId });
+        if (!result.ok) { showToast(result.j.err || 'Kitap silinemedi.', 'error'); return; }
+      } catch (err) { showToast('Kitap silme işlemi sunucuya kaydedilemedi.', 'error'); return; }
       appState.books = appState.books.filter(b => b.id !== bookId);
       saveState();
       renderBooks();
@@ -1135,7 +1140,12 @@
       document.getElementById('formAddMember').reset();
     }
 
-    function deleteMember(memberId) {
+    async function deleteMember(memberId) {
+      if (!confirm('Bu üyeyi ve giriş hesabını silmek istiyor musunuz?')) return;
+      try {
+        const result = await api('member_delete', { id: memberId });
+        if (!result.ok) { showToast(result.j.err || 'Üye silinemedi.', 'error'); return; }
+      } catch (err) { showToast('Üye silme işlemi sunucuya kaydedilemedi.', 'error'); return; }
       appState.members = appState.members.filter(m => m.id !== memberId);
       saveState();
       renderMembers();
