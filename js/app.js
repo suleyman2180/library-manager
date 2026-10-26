@@ -390,9 +390,13 @@
       renderLoansTable();
     }
 
-    function returnBookLoan(loanId) {
+    async function returnBookLoan(loanId) {
       const loan = appState.loans.find(l => l.id === loanId);
       if (!loan) return;
+      try {
+        const result = await api('loan_return', { id: loanId });
+        if (!result.ok) { showToast(result.j.err || 'İade işlemi tamamlanamadı.', 'error'); return; }
+      } catch (err) { showToast('İade işlemi sunucuya kaydedilemedi.', 'error'); return; }
 
       loan.status = 'RETURNED';
       loan.returnDate = new Date().toISOString().split('T')[0];
@@ -1054,14 +1058,19 @@
       closeModal('modalAddBook');
     }
 
-    function deleteBook(bookId) {
+    async function deleteBook(bookId) {
+      if (!confirm('Bu kitabı katalogdan silmek istiyor musunuz?')) return;
+      try {
+        const result = await api('book_delete', { id: bookId });
+        if (!result.ok) { showToast(result.j.err || 'Kitap silinemedi.', 'error'); return; }
+      } catch (err) { showToast('Kitap silme işlemi sunucuya kaydedilemedi.', 'error'); return; }
       appState.books = appState.books.filter(b => b.id !== bookId);
       saveState();
       renderBooks();
       showToast('Kitap katalogdan silindi.', 'info');
     }
 
-    function handleIssueLoan(e) {
+    async function handleIssueLoan(e) {
       e.preventDefault();
       const memberId = parseInt(document.getElementById('loanMemberSelect').value);
       const bookId = parseInt(document.getElementById('loanBookSelect').value);
@@ -1079,8 +1088,13 @@
         return;
       }
 
+      let loanResult;
+      try {
+        loanResult = await api('loan_create', { bookId, memberId, issueDate: document.getElementById('loanStartDate').value, dueDate: document.getElementById('loanDueDate').value });
+        if (!loanResult.ok) { showToast(loanResult.j.err || 'Ödünç işlemi tamamlanamadı.', 'error'); return; }
+      } catch (err) { showToast('Ödünç işlemi sunucuya kaydedilemedi.', 'error'); return; }
       const newLoan = {
-        id: `LN-${Math.floor(100 + Math.random() * 900)}`,
+        id: loanResult.j.id,
         bookId,
         memberId,
         issueDate: document.getElementById('loanStartDate').value,
@@ -1100,17 +1114,23 @@
       showToast(`Kitap ${member.name} isimli üyeye teslim edildi.`, 'success');
     }
 
-    function handleSaveMember(e) {
+    async function handleSaveMember(e) {
       e.preventDefault();
       const newMember = {
         id: Date.now(),
-        name: document.getElementById('memberName').value,
-        email: document.getElementById('memberEmail').value,
-        phone: document.getElementById('memberPhone').value,
+        name: document.getElementById('memberName').value.trim(),
+        email: document.getElementById('memberEmail').value.trim(),
+        phone: document.getElementById('memberPhone').value.trim(),
         role: document.getElementById('memberRole').value,
         activeLoans: 0,
         avatar: `https://serup.com.tr/enderun/assets/images/clubs/ahenkk.svg`
       };
+      const username = document.getElementById('memberUsername').value.trim();
+      const password = document.getElementById('memberPassword').value;
+      try {
+        const result = await api('member_add', { ...newMember, username, password });
+        if (!result.ok) { showToast(result.j.err || 'Üye oluşturulamadı.', 'error'); return; }
+      } catch (err) { showToast('Üye kaydı sunucuya gönderilemedi.', 'error'); return; }
 
       appState.members.unshift(newMember);
       saveState();
@@ -1120,7 +1140,12 @@
       document.getElementById('formAddMember').reset();
     }
 
-    function deleteMember(memberId) {
+    async function deleteMember(memberId) {
+      if (!confirm('Bu üyeyi ve giriş hesabını silmek istiyor musunuz?')) return;
+      try {
+        const result = await api('member_delete', { id: memberId });
+        if (!result.ok) { showToast(result.j.err || 'Üye silinemedi.', 'error'); return; }
+      } catch (err) { showToast('Üye silme işlemi sunucuya kaydedilemedi.', 'error'); return; }
       appState.members = appState.members.filter(m => m.id !== memberId);
       saveState();
       renderMembers();
@@ -1215,7 +1240,7 @@
     }
 
     // ===== Sunucu bağlantısı, giriş ve yöneticiler =====
-    let admins = [], me = null;
+    let admins = [], me = null, currentMember = null;
     const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     function openSidebar() { document.getElementById('sidebar').classList.add('open'); }
     function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); }
@@ -1293,6 +1318,12 @@
         const x = await fetch('api.php?a=get');
         if (x.status === 401) { showLogin(); return false; }
         const j = await x.json();
+        if (j.role === 'member') {
+          currentMember = j.member || null;
+          renderMemberPortal(j.loans || []);
+          return !!currentMember;
+        }
+        currentMember = null;
         appState = { books: j.b || [], members: j.u || [], loans: j.l || [], settings: (j.s && !Array.isArray(j.s)) ? j.s : {} };
         admins = j.admins || []; me = j.me || null; hasIsbndbKey = !!j.hasKey; hasGeminiKey = !!j.hasGeminiKey;
         normalize();
@@ -1318,13 +1349,35 @@
       if (!loanTrendChart) initCharts();
       renderBooks(); renderLoansTable(); renderMembers(); updateMetrics(); refreshCharts();
     }
-    async function boot() { if (await load()) { hideLogin(); renderAll(); } }
+    function renderMemberPortal(loans) {
+      const today = new Date().toISOString().slice(0, 10);
+      document.getElementById('portalMemberName').innerText = currentMember ? currentMember.name : 'Üye';
+      const target = document.getElementById('portalLoans');
+      if (!loans.length) { target.innerHTML = '<p class="text-sm text-slate-500">Henüz ödünç geçmişin yok.</p>'; return; }
+      target.innerHTML = loans.map(l => {
+        const late = l.status !== 'RETURNED' && l.dueDate && l.dueDate < today;
+        const status = l.status === 'RETURNED' ? 'İade edildi' : late ? 'Gecikmede' : 'Üzerinde';
+        const color = late ? 'text-rose-500' : l.status === 'RETURNED' ? 'text-emerald-600' : 'text-brand-500';
+        return '<article class="rounded-xl border border-slate-200 dark:border-dark-border p-4 flex flex-wrap items-start justify-between gap-3"><div><h3 class="font-bold">' + esc(l.title || 'Kitap bilgisi yok') + '</h3><p class="text-xs text-slate-500 mt-1">' + esc(l.author || '') + '</p><p class="text-xs text-slate-500 mt-2">Ödünç: ' + esc(l.issueDate || '-') + ' · Son tarih: ' + esc(l.dueDate || '-') + (l.returnDate ? ' · İade: ' + esc(l.returnDate) : '') + '</p></div><span class="text-xs font-bold ' + color + '">' + status + '</span></article>';
+      }).join('');
+    }
+    function showMemberPortal() {
+      hideLogin();
+      document.getElementById('appShell').classList.add('hidden');
+      document.getElementById('memberPortal').classList.remove('hidden');
+    }
+    async function boot() { if (await load()) { hideLogin(); if (currentMember) showMemberPortal(); else { document.getElementById('memberPortal').classList.add('hidden'); document.getElementById('appShell').classList.remove('hidden'); renderAll(); } } }
     async function doLogin(e) {
       e.preventDefault();
       try {
         const x = await fetch('api.php?a=login', { ...J, body: JSON.stringify({ username: document.getElementById('loginUser').value, password: document.getElementById('loginPass').value }) });
-        if (x.ok) { document.getElementById('loginPass').value = ''; if (await load()) { hideLogin(); renderAll(); } }
-        else document.getElementById('loginMsg').innerText = 'Kullanıcı adı veya şifre yanlış';
+        if (x.ok) {
+          document.getElementById('loginPass').value = '';
+          if (await load()) {
+            if (currentMember) showMemberPortal();
+            else { hideLogin(); document.getElementById('memberPortal').classList.add('hidden'); document.getElementById('appShell').classList.remove('hidden'); renderAll(); }
+          }
+        } else document.getElementById('loginMsg').innerText = 'Kullanıcı adı veya şifre yanlış';
       } catch (err) { document.getElementById('loginMsg').innerText = 'Sunucuya bağlanılamadı'; }
     }
     async function logout() { try { await fetch('api.php?a=logout'); } catch (e) {} location.reload(); }

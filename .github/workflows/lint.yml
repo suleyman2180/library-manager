@@ -1,0 +1,21 @@
+name: Syntax checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+      - name: Check PHP syntax
+        run: php -l api.php && php -l db.php
+      - name: Check JavaScript syntax
+        run: node --check js/app.js
