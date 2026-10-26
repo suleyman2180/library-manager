@@ -1492,6 +1492,7 @@
       try {
         const r = await api('book_update', {id,title,author,category,isbn,totalStock,publisher,year,pages,color,extra});
         if (!r.ok) { error.textContent = r.j.err || 'Kitap güncellenemedi.'; return; }
+        for (const k of Object.keys(b)) if (!BOOK_EDIT_FIELDS.includes(k)) delete b[k];
         Object.assign(b, extra, {id:b.id,title,author,category,isbn,totalStock,currentStock:r.j.currentStock,publisher,year,pages,color});
         closeModal('modalEditBook'); saveState(); renderBooks(); renderLoansTable(); showToast('Kitap bilgileri kaydedildi.', 'success');
       } catch(e) { error.textContent = 'Sunucuya ulaşılamadı; değişiklikler kaydedilmedi.'; }
