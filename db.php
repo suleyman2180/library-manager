@@ -32,8 +32,14 @@ function db_init($p) {
   $p->exec("CREATE TABLE IF NOT EXISTS members (
     id BIGINT NOT NULL PRIMARY KEY, pos INT NOT NULL DEFAULT 0,
     name VARCHAR(255) NULL, email VARCHAR(255) NULL, phone VARCHAR(40) NULL, role VARCHAR(60) NULL,
-    active_loans INT NULL, avatar TEXT NULL, extra MEDIUMTEXT NULL,
-    KEY idx_pos (pos)) $t");
+    active_loans INT NULL, avatar TEXT NULL, username VARCHAR(64) NULL, password_hash VARCHAR(255) NULL, extra MEDIUMTEXT NULL,
+    UNIQUE KEY uq_member_username (username), KEY idx_pos (pos)) $t");
+  // Migrate existing installations.
+  $memberCols = [];
+  foreach ($p->query('SHOW COLUMNS FROM members') as $column) $memberCols[$column['Field']] = true;
+  if (!isset($memberCols['username'])) $p->exec('ALTER TABLE members ADD COLUMN username VARCHAR(64) NULL');
+  if (!isset($memberCols['password_hash'])) $p->exec('ALTER TABLE members ADD COLUMN password_hash VARCHAR(255) NULL');
+  try { $p->exec('CREATE UNIQUE INDEX uq_member_username ON members (username)'); } catch (PDOException $e) { /* index already exists */ }
   $p->exec("CREATE TABLE IF NOT EXISTS loans (
     id VARCHAR(40) NOT NULL PRIMARY KEY, pos INT NOT NULL DEFAULT 0,
     book_id BIGINT NULL, member_id BIGINT NULL,
