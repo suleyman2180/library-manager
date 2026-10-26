@@ -113,7 +113,6 @@ if($a=='book_update'&&$post){
   $st=$pdo->prepare("SELECT COUNT(*) FROM loans WHERE book_id=? AND status IN ('ACTIVE','OVERDUE')"); $st->execute([$id]); $borrowed=(int)$st->fetchColumn();
   if($tot<$borrowed)out(400,['ok'=>0,'err'=>'Toplam stok, ödünçteki kitap sayısından az olamaz (ödünçte: '.$borrowed.')']);
   $cur=$tot-$borrowed;
-  $st=$pdo->prepare('SELECT extra FROM books WHERE id=?'); $st->execute([$id]); $oldExtra=json_decode((string)($st->fetchColumn() ?: '{}'),true); if(!is_array($oldExtra))$oldExtra=[];
   $incoming=$in['extra']??[]; if(!is_array($incoming))out(400,['ok'=>0,'err'=>'Ek alanlar JSON nesnesi olmalı']);
   foreach(['id','title','author','category','isbn','totalStock','currentStock','color','year','pages','publisher'] as $reserved)unset($incoming[$reserved]);
   $extra=$incoming;
