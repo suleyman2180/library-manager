@@ -51,6 +51,35 @@ if($a==='get' && !empty($_SESSION['mid'])){
   out(200,['role'=>'member','member'=>['id'=>(int)$member['id'],'name'=>$member['name'],'username'=>$member['username'],'email'=>$member['email'],'role'=>$member['role']],'loans'=>$outLoans]);
 }
 $me=me($S);if(!$me)out(401,['ok'=>0]);
+function trash_record(PDO $pdo, string $entity, $id, string $label): void {
+  if(!in_array($entity,['books','members','loans','admins'],true)) throw new RuntimeException('Unsupported trash entity');
+  $st=$pdo->prepare("SELECT * FROM {$entity} WHERE id=? LIMIT 1"); $st->execute([$id]); $row=$st->fetch(PDO::FETCH_ASSOC);
+  if(!$row) out(404,['ok'=>0,'err'=>'Kayıt bulunamadı']);
+  $pdo->prepare('INSERT INTO trash (entity,record_id,label,payload) VALUES (?,?,?,?)')->execute([$entity,(string)$id,mb_substr($label,0,255),json_encode($row,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR)]);
+  $pdo->prepare("DELETE FROM {$entity} WHERE id=?")->execute([$id]);
+}
+if($a==='trash_list'){
+  $rows=$pdo->query('SELECT id,entity,record_id,label,deleted_at FROM trash ORDER BY deleted_at DESC,id DESC LIMIT 300')->fetchAll(PDO::FETCH_ASSOC);
+  out(200,['ok'=>1,'items'=>$rows]);
+}
+if($a==='trash_restore'&&$post){
+  $tid=(int)($in['id']??0); if(!$tid)out(400,['ok'=>0,'err'=>'Çöp kutusu kaydı gerekli']);
+  $st=$pdo->prepare('SELECT * FROM trash WHERE id=? LIMIT 1'); $st->execute([$tid]); $t=$st->fetch(PDO::FETCH_ASSOC);
+  if(!$t)out(404,['ok'=>0,'err'=>'Çöp kutusu kaydı bulunamadı']);
+  $entity=$t['entity']; if(!in_array($entity,['books','members','loans','admins'],true))out(400,['ok'=>0,'err'=>'Geçersiz kayıt türü']);
+  $row=json_decode($t['payload'],true); if(!is_array($row)||!isset($row['id']))out(500,['ok'=>0,'err'=>'Yedek kayıt okunamadı']);
+  $exists=$pdo->prepare("SELECT COUNT(*) FROM {$entity} WHERE id=?"); $exists->execute([$row['id']]);
+  if((int)$exists->fetchColumn()>0)out(409,['ok'=>0,'err'=>'Aynı ID mevcut; mevcut kayıtla çakışıyor.']);
+  try {
+    $columns=[]; foreach($pdo->query("SHOW COLUMNS FROM {$entity}") as $c)$columns[$c['Field']]=true;
+    $row=array_intersect_key($row,$columns); $names=array_keys($row);
+    if(!$names)out(400,['ok'=>0,'err'=>'Geri yüklenecek alan bulunamadı']);
+    $quoted=array_map(fn($n)=>'`'.$n.'`',$names); $marks=array_fill(0,count($names),'?');
+    $pdo->prepare('INSERT INTO `'.$entity.'` ('.implode(',',$quoted).') VALUES ('.implode(',',$marks).')')->execute(array_values($row));
+    $pdo->prepare('DELETE FROM trash WHERE id=?')->execute([$tid]);
+  } catch(PDOException $e) { if($e->getCode()==='23000')out(409,['ok'=>0,'err'=>'Kullanıcı adı veya benzersiz alan başka bir kayıtta kullanılıyor.']); throw $e; }
+  out(200,['ok'=>1,'entity'=>$entity]);
+}
 if($a=='get'){
   $is_default_password = false;
   if ($me && strcasecmp($me['username'], 'admin') === 0 && password_verify('1234', $me['hash'])) {
@@ -81,10 +110,12 @@ if($a=='book_update'&&$post){
   $id=(int)($in['id']??0);
   if(!$id)out(400,['ok'=>0,'err'=>'Kitap ID zorunludur']);
   $tot=max(1,(int)($in['totalStock']??1));
-  $cur=max(0,(int)($in['currentStock']??$tot));
+  $st=$pdo->prepare("SELECT COUNT(*) FROM loans WHERE book_id=? AND status IN ('ACTIVE','OVERDUE')"); $st->execute([$id]); $borrowed=(int)$st->fetchColumn();
+  if($tot<$borrowed)out(400,['ok'=>0,'err'=>'Toplam stok, ödünçteki kitap sayısından az olamaz (ödünçte: '.$borrowed.')']);
+  $cur=$tot-$borrowed;
   $st=$pdo->prepare("UPDATE books SET title=?, author=?, category=?, isbn=?, total_stock=?, current_stock=?, color=?, year=?, pages=?, publisher=? WHERE id=?");
-  $st->execute([(string)($in['title']??''),(string)($in['author']??''),(string)($in['category']??'Genel'),(string)($in['isbn']??''),$tot,$cur,(string)($in['color']??'#0070f3'),(string)($in['year']??''),(int)($in['pages']??0),(string)($in['publisher']??''),$id]);
-  out(200,['ok'=>1]);
+  $st->execute([trim((string)($in['title']??'')),trim((string)($in['author']??'')),(string)($in['category']??'Genel'),(string)($in['isbn']??''),$tot,$cur,(string)($in['color']??'#0070f3'),(string)($in['year']??''),(int)($in['pages']??0),(string)($in['publisher']??''),$id]);
+  out(200,['ok'=>1,'currentStock'=>$cur]);
 }
 
 if($a=='book_delete'&&$post){
@@ -93,7 +124,8 @@ if($a=='book_delete'&&$post){
   $chk=$pdo->prepare("SELECT COUNT(*) FROM loans WHERE book_id=? AND status IN ('ACTIVE','OVERDUE')");
   $chk->execute([$id]);
   if((int)$chk->fetchColumn()>0)out(400,['ok'=>0,'err'=>'Bu kitap ödünçte olduğu için silinemez']);
-  $pdo->prepare("DELETE FROM books WHERE id=?")->execute([$id]);
+  $st=$pdo->prepare('SELECT title FROM books WHERE id=?'); $st->execute([$id]); $label=(string)$st->fetchColumn();
+  trash_record($pdo,'books',$id,$label ?: ('Kitap #'.$id));
   out(200,['ok'=>1]);
 }
 
@@ -113,8 +145,14 @@ if($a=='member_add'&&$post){
 if($a=='member_update'&&$post){
   $id=(int)($in['id']??0);
   if(!$id)out(400,['ok'=>0,'err'=>'Üye ID zorunludur']);
-  $st=$pdo->prepare("UPDATE members SET name=?, email=?, phone=?, role=? WHERE id=?");
-  $st->execute([(string)($in['name']??''),(string)($in['email']??''),(string)($in['phone']??''),(string)($in['role']??'Genel Okuyucu'),$id]);
+  $name=trim((string)($in['name']??'')); $username=trim((string)($in['username']??'')); $password=(string)($in['password']??'');
+  if($name==='')out(400,['ok'=>0,'err'=>'Üye adı zorunludur']);
+  if($username!=='' && !preg_match('/^[a-zA-Z0-9._-]{3,64}$/',$username))out(400,['ok'=>0,'err'=>'Kullanıcı adı 3-64 karakter olmalı']);
+  if($username!==''){$st=$pdo->prepare('SELECT COUNT(*) FROM members WHERE username=? AND id<>?');$st->execute([$username,$id]);if((int)$st->fetchColumn()>0)out(409,['ok'=>0,'err'=>'Bu üye kullanıcı adı zaten kullanılıyor']);}
+  if($password!=='' && strlen($password)<10)out(400,['ok'=>0,'err'=>'Yeni parola en az 10 karakter olmalı']);
+  $sql="UPDATE members SET name=?, email=?, phone=?, role=?".($username!==''?', username=?':'')." WHERE id=?";
+  $args=[$name,(string)($in['email']??''),(string)($in['phone']??''),(string)($in['role']??'Genel Okuyucu')]; if($username!=='')$args[]=$username; $args[]=$id; $pdo->prepare($sql)->execute($args);
+  if($password!=='')$pdo->prepare('UPDATE members SET password_hash=? WHERE id=?')->execute([password_hash($password,PASSWORD_DEFAULT),$id]);
   out(200,['ok'=>1]);
 }
 
@@ -124,7 +162,8 @@ if($a=='member_delete'&&$post){
   $chk=$pdo->prepare("SELECT COUNT(*) FROM loans WHERE member_id=? AND status IN ('ACTIVE','OVERDUE')");
   $chk->execute([$id]);
   if((int)$chk->fetchColumn()>0)out(400,['ok'=>0,'err'=>'Bu üyenin üzerinde aktif ödünç kitap var, silinemez']);
-  $pdo->prepare("DELETE FROM members WHERE id=?")->execute([$id]);
+  $st=$pdo->prepare('SELECT name FROM members WHERE id=?'); $st->execute([$id]); $label=(string)$st->fetchColumn();
+  trash_record($pdo,'members',$id,$label ?: ('Üye #'.$id));
   out(200,['ok'=>1]);
 }
 
@@ -150,6 +189,21 @@ if($a=='loan_create'&&$post){
   }catch(Throwable $e){$pdo->rollBack();throw $e;}
 }
 
+if($a==='loan_update'&&$post){
+  $id=trim((string)($in['id']??'')); $issue=trim((string)($in['issueDate']??'')); $due=trim((string)($in['dueDate']??'')); $return=trim((string)($in['returnDate']??''));
+  if($id===''||!preg_match('/^\\d{4}-\\d{2}-\\d{2}$/',$issue)||!preg_match('/^\\d{4}-\\d{2}-\\d{2}$/',$due))out(400,['ok'=>0,'err'=>'Geçerli ödünç ve son tarih girin']);
+  $st=$pdo->prepare('SELECT status FROM loans WHERE id=?');$st->execute([$id]);$status=$st->fetchColumn(); if($status===false)out(404,['ok'=>0,'err'=>'Ödünç kaydı bulunamadı']);
+  if($status!=='RETURNED')$return='';
+  if($return!==''&&!preg_match('/^\\d{4}-\\d{2}-\\d{2}$/',$return))out(400,['ok'=>0,'err'=>'Geçerli iade tarihi girin']);
+  $pdo->prepare('UPDATE loans SET issue_date=?,due_date=?,return_date=? WHERE id=?')->execute([$issue,$due,$return!==''?$return:null,$id]); out(200,['ok'=>1]);
+}
+if($a==='loan_delete'&&$post){
+  $id=trim((string)($in['id']??'')); if($id==='')out(400,['ok'=>0,'err'=>'Ödünç ID gerekli']);
+  $st=$pdo->prepare('SELECT status,book_id,member_id FROM loans WHERE id=?');$st->execute([$id]);$row=$st->fetch(PDO::FETCH_ASSOC);
+  if(!$row)out(404,['ok'=>0,'err'=>'Ödünç kaydı bulunamadı']); if($row['status']!=='RETURNED')out(400,['ok'=>0,'err'=>'Aktif ödünç kayıtları silinemez. Önce kitabı iade alın.']);
+  $bk=$pdo->prepare('SELECT title FROM books WHERE id=?');$bk->execute([$row['book_id']]);$book=(string)$bk->fetchColumn(); $mb=$pdo->prepare('SELECT name FROM members WHERE id=?');$mb->execute([$row['member_id']]);$member=(string)$mb->fetchColumn();
+  trash_record($pdo,'loans',$id,($book?:'Kitap').' — '.($member?:'Üye').' ('.$id.')'); out(200,['ok'=>1]);
+}
 if($a=='loan_return'&&$post){
   $lid=(string)($in['id']??'');
   if(!$lid)out(400,['ok'=>0,'err'=>'Ödünç ID zorunludur']);
@@ -217,7 +271,9 @@ if($a=='admin_del'&&$post){
   $id=(string)($in['id']??'');
   if($id===$me['id'])out(400,['ok'=>0,'err'=>'Kendi hesabınızı silemezsiniz']);
   if(count($S['admins'])<2)out(400,['ok'=>0,'err'=>'En az bir yönetici kalmalı']);
-  $pdo->prepare("DELETE FROM admins WHERE id=?")->execute([$id]);
+  $target=null; foreach($S['admins'] as $x)if($x['id']===$id)$target=$x;
+  if(!$target)out(404,['ok'=>0,'err'=>'Yönetici bulunamadı']);
+  trash_record($pdo,'admins',$id,$target['name'].' (@'.$target['username'].')');
   $S['admins']=admins_all();out(200,['ok'=>1,'admins'=>pub($S)]);
 }
 if($a=='password'&&$post){
