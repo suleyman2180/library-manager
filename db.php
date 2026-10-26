@@ -12,6 +12,14 @@ function pdo() {
     PDO::ATTR_EMULATE_PREPARES => false,
   ]);
   try { $p->query('SELECT 1 FROM isbn_cache LIMIT 1'); } catch (PDOException $e) { db_init($p); }
+  // Ensure member-login columns exist even when the rest of the database is already initialized.
+  try {
+    $memberCols = [];
+    foreach ($p->query('SHOW COLUMNS FROM members') as $column) $memberCols[$column['Field']] = true;
+    if (!isset($memberCols['username'])) $p->exec('ALTER TABLE members ADD COLUMN username VARCHAR(64) NULL');
+    if (!isset($memberCols['password_hash'])) $p->exec('ALTER TABLE members ADD COLUMN password_hash VARCHAR(255) NULL');
+    try { $p->exec('CREATE UNIQUE INDEX uq_member_username ON members (username)'); } catch (PDOException $e) { /* index already exists */ }
+  } catch (PDOException $e) { error_log('Fihrist member schema upgrade: '.$e->getMessage()); }
   return $p;
 }
 
