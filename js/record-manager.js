@@ -19,20 +19,35 @@ async function editBook(id) {
     saveState(); renderBooks(); renderLoansTable(); showToast('Kitap bilgileri güncellendi.', 'success');
   } catch(e) { showToast('Kitap güncellenemedi.', 'error'); }
 }
-async function editMember(id) {
+function editMember(id) {
   const m = appState.members.find(x => Number(x.id) === Number(id)); if (!m) return;
-  const name = prompt('Üye adı soyadı', m.name); if (name === null) return;
-  const email = prompt('E-posta', m.email || ''); if (email === null) return;
-  const phone = prompt('Telefon', m.phone || ''); if (phone === null) return;
-  const role = prompt('Üyelik türü', m.role || 'Genel Okuyucu'); if (role === null) return;
-  const username = prompt('Kullanıcı adı (3-64 karakter)', m.username || ''); if (username === null) return;
-  const password = prompt('Yeni parola (değiştirmeyeceksen boş bırak; en az 10 karakter)', ''); if (password === null) return;
+  document.getElementById('editMemberId').value = m.id;
+  document.getElementById('editMemberName').value = m.name || '';
+  document.getElementById('editMemberEmail').value = m.email || '';
+  document.getElementById('editMemberPhone').value = m.phone || '';
+  document.getElementById('editMemberRole').value = m.role || 'Genel Okuyucu';
+  document.getElementById('editMemberUsername').value = m.username || '';
+  document.getElementById('editMemberPassword').value = '';
+  document.getElementById('editMemberError').textContent = '';
+  openModal('modalEditMember');
+}
+async function saveEditedMember(event) {
+  event.preventDefault();
+  const id = Number(document.getElementById('editMemberId').value);
+  const m = appState.members.find(x => Number(x.id) === id); if (!m) return;
+  const name = document.getElementById('editMemberName').value.trim();
+  const email = document.getElementById('editMemberEmail').value.trim();
+  const phone = document.getElementById('editMemberPhone').value.trim();
+  const role = document.getElementById('editMemberRole').value.trim();
+  const username = document.getElementById('editMemberUsername').value.trim();
+  const password = document.getElementById('editMemberPassword').value;
   try {
-    const r = await api('member_update',{id:m.id,name:name.trim(),email:email.trim(),phone:phone.trim(),role:role.trim(),username:username.trim(),password});
-    if (!r.ok) { showToast(r.j.err || 'Üye güncellenemedi.', 'error'); return; }
-    Object.assign(m,{name:name.trim(),email:email.trim(),phone:phone.trim(),role:role.trim(),username:username.trim()});
-    saveState(); renderMembers(); showToast('Üye bilgileri güncellendi.', 'success');
-  } catch(e) { showToast('Üye güncellenemedi.', 'error'); }
+    const r = await api('member_update',{id,name,email,phone,role,username,password});
+    if (!r.ok) { document.getElementById('editMemberError').textContent = r.j.err || 'Üye güncellenemedi.'; return; }
+    Object.assign(m,{name,email,phone,role,username});
+    document.getElementById('editMemberPassword').value = '';
+    closeModal('modalEditMember'); saveState(); renderMembers(); showToast('Üye bilgileri güncellendi.', 'success');
+  } catch(e) { document.getElementById('editMemberError').textContent = 'Üye güncellenemedi.'; }
 }
 async function editLoan(id) {
   const l = appState.loans.find(x => String(x.id) === String(id)); if (!l) return;
