@@ -220,7 +220,7 @@
             <button onclick="quickIssueLoan(${b.id})" ${b.currentStock === 0 ? 'disabled' : ''} class="flex-1 py-2 text-xs font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-brand-500 hover:text-white text-slate-700 dark:text-slate-200 disabled:opacity-40 disabled:hover:bg-slate-100 transition">
               <i class="fa-solid fa-handshake mr-1"></i> Ödünç Ver
             </button>
-            <button onclick="editBook(${b.id})" class="w-8 h-8 rounded-xl text-slate-400 hover:text-brand-500" title="Kitabı düzenle"><i class="fa-solid fa-pen text-xs"></i></button>
+            <button onclick="window.editBook(${b.id})" class="w-8 h-8 rounded-xl text-slate-400 hover:text-brand-500" title="Kitabı düzenle"><i class="fa-solid fa-pen text-xs"></i></button>
             <button onclick="openBarcodeModal(${b.id})" class="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition" title="Raf Etiketi & Barkod Bas">
               <i class="fa-solid fa-barcode text-xs"></i>
             </button>
@@ -257,7 +257,7 @@
             <button onclick="quickIssueLoan(${b.id})" ${b.currentStock === 0 ? 'disabled' : ''} class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-40 transition mr-2">
               Ödünç Ver
             </button>
-            <button onclick="editBook(${b.id})" class="text-slate-400 hover:text-brand-500 transition mr-2" title="Düzenle"><i class="fa-solid fa-pen"></i></button>
+            <button onclick="window.editBook(${b.id})" class="text-slate-400 hover:text-brand-500 transition mr-2" title="Düzenle"><i class="fa-solid fa-pen"></i></button>
             <button onclick="openBarcodeModal(${b.id})" class="text-slate-400 hover:text-indigo-500 transition mr-2" title="Raf Etiketi & Barkod Bas">
               <i class="fa-solid fa-barcode"></i>
             </button>
@@ -477,7 +477,7 @@
               </div>
 
               <div class="mt-3 pt-2 flex items-center justify-between gap-2">
-                <button onclick="editMember(${m.id})" class="w-8 h-8 rounded-xl text-slate-400 hover:text-brand-500" title="Üyeyi düzenle"><i class="fa-solid fa-pen"></i></button>
+                <button onclick="window.editMember(${m.id})" class="w-8 h-8 rounded-xl text-slate-400 hover:text-brand-500" title="Üyeyi düzenle"><i class="fa-solid fa-pen"></i></button>
                 <button onclick="openKarneModal(${m.id})" class="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-bold transition">
                   <i class="fa-solid fa-graduation-cap text-amber-500"></i> Okuma Karnesi
                 </button>
@@ -1443,3 +1443,98 @@
       // Sunucudan verileri yükle (giriş gerekiyorsa giriş ekranı açılır)
       boot();
     });
+
+    
+    // Record editing handlers are defined in the main app scope so inline buttons can always reach them.
+    const BOOK_EDIT_FIELDS = ['id','title','author','category','isbn','totalStock','currentStock','color','year','pages','publisher'];
+    function editBook(id) {
+      const b = appState.books.find(x => String(x.id) === String(id));
+      if (!b) { showToast('Kitap kaydı bulunamadı. Listeyi yenileyin.', 'error'); return; }
+      document.getElementById('editBookId').value = b.id;
+      document.getElementById('editBookTitle').value = b.title || '';
+      document.getElementById('editBookAuthor').value = b.author || '';
+      document.getElementById('editBookCategory').value = b.category || 'Genel';
+      document.getElementById('editBookIsbn').value = b.isbn || '';
+      document.getElementById('editBookTotalStock').value = Number(b.totalStock || 1);
+      document.getElementById('editBookCurrentStock').value = Number(b.currentStock || 0);
+      document.getElementById('editBookPublisher').value = b.publisher || '';
+      document.getElementById('editBookYear').value = b.year || '';
+      document.getElementById('editBookPages').value = Number(b.pages || 0);
+      document.getElementById('editBookColor').value = /^#[0-9a-f]{6}$/i.test(b.color || '') ? b.color : '#0070f3';
+      const extra = Object.fromEntries(Object.entries(b).filter(([k]) => !BOOK_EDIT_FIELDS.includes(k)));
+      document.getElementById('editBookExtra').value = JSON.stringify(extra, null, 2);
+      document.getElementById('editBookError').textContent = '';
+      openModal('modalEditBook');
+    }
+    async function saveEditedBook(event) {
+      event.preventDefault();
+      const error = document.getElementById('editBookError');
+      const id = document.getElementById('editBookId').value;
+      const b = appState.books.find(x => String(x.id) === String(id));
+      if (!b) { error.textContent = 'Kitap kaydı bulunamadı; sayfayı yenileyin.'; return; }
+      const title = document.getElementById('editBookTitle').value.trim();
+      const author = document.getElementById('editBookAuthor').value.trim();
+      const category = document.getElementById('editBookCategory').value.trim();
+      const isbn = document.getElementById('editBookIsbn').value.trim();
+      const totalStock = Number(document.getElementById('editBookTotalStock').value);
+      const publisher = document.getElementById('editBookPublisher').value.trim();
+      const year = document.getElementById('editBookYear').value.trim();
+      const pages = Number(document.getElementById('editBookPages').value);
+      const color = document.getElementById('editBookColor').value;
+      if (!title || !author) { error.textContent = 'Kitap adı ve yazar zorunludur.'; return; }
+      if (!Number.isInteger(totalStock) || totalStock < 1) { error.textContent = 'Toplam stok en az 1 olmalı.'; return; }
+      if (!Number.isInteger(pages) || pages < 0) { error.textContent = 'Sayfa sayısı 0 veya daha büyük tam sayı olmalı.'; return; }
+      let extra;
+      try { extra = JSON.parse(document.getElementById('editBookExtra').value || '{}'); }
+      catch(e) { error.textContent = 'Ek alanlar geçerli JSON biçiminde olmalı.'; return; }
+      if (!extra || Array.isArray(extra) || typeof extra !== 'object') { error.textContent = 'Ek alanlar bir JSON nesnesi olmalı.'; return; }
+      for (const k of BOOK_EDIT_FIELDS) delete extra[k];
+      try {
+        const r = await api('book_update', {id,title,author,category,isbn,totalStock,publisher,year,pages,color,extra});
+        if (!r.ok) { error.textContent = r.j.err || 'Kitap güncellenemedi.'; return; }
+        for (const k of Object.keys(b)) if (!BOOK_EDIT_FIELDS.includes(k)) delete b[k];
+        Object.assign(b, extra, {id:b.id,title,author,category,isbn,totalStock,currentStock:r.j.currentStock,publisher,year,pages,color});
+        closeModal('modalEditBook'); saveState(); renderBooks(); renderLoansTable(); showToast('Kitap bilgileri kaydedildi.', 'success');
+      } catch(e) { error.textContent = 'Sunucuya ulaşılamadı; değişiklikler kaydedilmedi.'; }
+    }
+    function editMember(id) {
+      const m = appState.members.find(x => String(x.id) === String(id));
+      if (!m) { showToast('Üye kaydı bulunamadı. Listeyi yenileyin.', 'error'); return; }
+      document.getElementById('editMemberId').value = m.id;
+      document.getElementById('editMemberName').value = m.name || '';
+      document.getElementById('editMemberEmail').value = m.email || '';
+      document.getElementById('editMemberPhone').value = m.phone || '';
+      document.getElementById('editMemberRole').value = m.role || 'Genel Okuyucu';
+      document.getElementById('editMemberUsername').value = m.username || '';
+      document.getElementById('editMemberPassword').value = '';
+      document.getElementById('editMemberError').textContent = '';
+      openModal('modalEditMember');
+    }
+    async function saveEditedMember(event) {
+      event.preventDefault();
+      const error = document.getElementById('editMemberError');
+      const id = document.getElementById('editMemberId').value;
+      const m = appState.members.find(x => String(x.id) === String(id));
+      if (!m) { error.textContent = 'Üye kaydı bulunamadı; sayfayı yenileyin.'; return; }
+      const name = document.getElementById('editMemberName').value.trim();
+      const email = document.getElementById('editMemberEmail').value.trim();
+      const phone = document.getElementById('editMemberPhone').value.trim();
+      const role = document.getElementById('editMemberRole').value.trim();
+      const username = document.getElementById('editMemberUsername').value.trim();
+      const password = document.getElementById('editMemberPassword').value;
+      if (!name) { error.textContent = 'Üye adı zorunludur.'; return; }
+      if (!/^[a-zA-Z0-9._-]{3,64}$/.test(username)) { error.textContent = 'Kullanıcı adı 3-64 karakter olmalı; harf, sayı, nokta, tire ve alt çizgi kullanın.'; return; }
+      if (password && password.length < 10) { error.textContent = 'Yeni parola en az 10 karakter olmalı.'; return; }
+      try {
+        const r = await api('member_update', {id:m.id,name,email,phone,role,username,password});
+        if (!r.ok) { error.textContent = r.j.err || 'Üye güncellenemedi.'; return; }
+        Object.assign(m,{name,email,phone,role,username});
+        document.getElementById('editMemberPassword').value = '';
+        closeModal('modalEditMember'); saveState(); renderMembers(); showToast('Üye bilgileri kaydedildi.', 'success');
+      } catch(e) { error.textContent = 'Sunucuya ulaşılamadı; değişiklikler kaydedilmedi.'; }
+    }
+    window.editBook = editBook;
+    window.saveEditedBook = saveEditedBook;
+    window.editMember = editMember;
+    window.saveEditedMember = saveEditedMember;
+
