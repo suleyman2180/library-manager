@@ -29,7 +29,7 @@ try {
   }
 
   // Only fixed, application-owned table names are used in SQL identifiers.
-  $tables = ['admins', 'kv', 'books', 'members', 'loans', 'isbn_cache'];
+  $tables = ['admins', 'kv', 'books', 'members', 'loans', 'isbn_cache', 'trash'];
   $sql = "-- Fihrist SQL backup\n-- Created: " . date(DATE_ATOM) . "\nSET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\n\n";
   $jsonTables = [];
   foreach ($tables as $table) {
