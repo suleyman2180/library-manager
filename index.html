@@ -70,11 +70,22 @@
       <input type="password" id="loginPass" placeholder="Şifre" autocomplete="current-password" class="w-full px-3.5 py-2.5 text-sm bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 select-text">
       <p id="loginMsg" class="text-xs text-rose-500 min-h-[1rem]"></p>
       <button type="submit" class="w-full py-3 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold shadow-md shadow-brand-500/20 transition">Giriş Yap</button>
+      <p class="text-[11px] text-slate-400 text-center">Yönetici ve üye hesapları bu ekrandan giriş yapabilir.</p>
     </form>
   </div>
 
+  <section id="memberPortal" class="hidden fixed inset-0 z-[90] overflow-y-auto bg-slate-50 dark:bg-dark-bg p-4 md:p-10">
+    <div class="max-w-5xl mx-auto space-y-6">
+      <header class="flex flex-wrap items-center justify-between gap-4">
+        <div><p class="text-xs uppercase tracking-widest text-brand-500 font-bold">Fihrist · Üye Alanı</p><h1 class="text-2xl font-bold mt-1">Merhaba, <span id="portalMemberName">Üye</span></h1><p class="text-sm text-slate-500 mt-1">Ödünç aldığın kitapları ve iade tarihlerini buradan takip edebilirsin.</p></div>
+        <button onclick="logout()" class="px-4 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-sm font-semibold">Çıkış Yap</button>
+      </header>
+      <div class="glass-card rounded-2xl p-5"><h2 class="font-bold mb-3">Ödünç Geçmişim</h2><div id="portalLoans" class="space-y-3"><p class="text-sm text-slate-500">Kayıtlar yükleniyor…</p></div></div>
+    </div>
+  </section>
+
   <!-- Main Layout Container -->
-  <div class="flex h-screen overflow-hidden">
+  <div id="appShell" class="flex h-screen overflow-hidden">
 
     <!-- Sidebar -->
     <aside id="sidebar" class="w-64 bg-white dark:bg-dark-card border-r border-slate-200/80 dark:border-dark-border flex flex-col justify-between transition-all duration-300 z-30 shrink-0">
@@ -565,6 +576,10 @@
             <p class="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">Kütüphane kullanım performansı ve popüler okuma verileri.</p>
           </div>
 
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <p class="text-sm text-slate-500">İstatistikler ve ödünç geçmişi raporları gerçek verilerden oluşturulur.</p>
+            <div class="flex flex-wrap gap-2"><a href="api.php?a=report" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-500 text-white text-xs font-semibold"><i class="fa-solid fa-file-csv"></i> Excel/CSV İndir</a><button type="button" onclick="window.print()" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-700 text-white text-xs font-semibold">PDF / Yazdır</button></div>
+          </div>
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             
             <div class="glass-card p-6 rounded-2xl shadow-soft">
@@ -596,7 +611,10 @@
           </div>
 
           <div class="max-w-4xl space-y-6">
-            
+            <div class="glass-card p-5 rounded-2xl shadow-soft flex flex-wrap items-center justify-between gap-3">
+              <div><h3 class="font-bold">Veritabanı Yedeği</h3><p class="text-xs text-slate-500 mt-1">Kitap, üye, ödünç ve temel ayarlar JSON olarak indirilir. Parolalar ve API anahtarları dahil edilmez.</p></div>
+              <a href="api.php?a=backup" class="px-4 py-2 rounded-xl bg-brand-500 text-white text-xs font-semibold"><i class="fa-solid fa-download mr-1"></i> Yedeği İndir</a>
+            </div>
             <div class="glass-card p-5 md:p-6 rounded-2xl shadow-soft space-y-5">
               <h3 class="text-base font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-dark-border pb-3">Kütüphane Bilgileri</h3>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1010,6 +1028,12 @@
             <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Telefon</label>
             <input type="tel" id="memberPhone" required placeholder="+90 555..." class="w-full px-3.5 py-2 text-xs md:text-sm bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none">
           </div>
+        </div>
+
+        <div>
+          <div class="grid grid-cols-2 gap-4">
+          <div><label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Üye kullanıcı adı</label><input type="text" id="memberUsername" required minlength="3" maxlength="64" pattern="[a-zA-Z0-9._-]{3,64}" autocomplete="off" placeholder="deniz.kaya" class="w-full px-3.5 py-2 text-xs md:text-sm bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none"></div>
+          <div><label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">İlk parola (en az 10 karakter)</label><input type="password" id="memberPassword" required minlength="10" autocomplete="new-password" placeholder="Güçlü parola" class="w-full px-3.5 py-2 text-xs md:text-sm bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none"></div>
         </div>
 
         <div>

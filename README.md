@@ -22,6 +22,9 @@
   Sorgulanan tüm kitaplar yerel veritabanında 30 gün boyunca önbelleklenir. Kota ve API maliyeti en aza indirilir.
 - **📊 Canlı İstatistikler & Grafikler:**
   Chart.js destekli gösterge paneli: Kategori dağılımları, aktif ödünçler, geciken kitaplar ve üye istatistikleri.
+- **👤 Üye Girişi:** Yönetici tarafından oluşturulan kullanıcı adı/parola ile üyeler yalnızca kendi ödünç geçmişlerini ve iade tarihlerini görüntüler.
+- **📤 Rapor ve Yedek:** Yönetici CSV ödünç raporu indirebilir; kitap, üye, ödünç ve temel ayarların JSON yedeğini alabilir. Parolalar ve API anahtarları yedeğe eklenmez.
+- **📚 Ödünç Güvenliği:** Stok ve üye başına ödünç limiti sunucu tarafında doğrulanır.
 - **🎨 Modüler & Duyarlı Arayüz:**
   Tailwind CSS ve modern cam efekti (Glassmorphism), Koyu/Açık (Dark/Light) tema geçişi ve mobilde tam uyumlu düzen.
 
@@ -66,7 +69,7 @@ return [
 ];
 ```
 
-> **Not:** Veritabanı tabloları (`admins`, `books`, `members`, `loans`, `kv`, `isbn_cache`) ilk sayfa açılışında otomatik olarak oluşturulacaktır (`db_init`).
+> **Not:** Veritabanı tabloları ilk sayfa açılışında oluşturulur. Üye hesabı alanları eski kurulumlarda da otomatik olarak eklenir. Üye eklerken kullanıcı adı ve en az 10 karakterlik ilk parola belirlenir.
 
 ---
 
@@ -95,6 +98,8 @@ return [
 | `POST` | `member_delete` | Üyeyi silme (üzerinde kitap yoksa) |
 | `POST` | `loan_create` | Ödünç verme (stok kontrolü ile) |
 | `POST` | `loan_return` | Kitabı iade alma |
+| `GET` | `report` | Ödünç geçmişini CSV olarak indirme (yönetici) |
+| `GET` | `backup` | JSON yedeği indirme (yönetici) |
 | `GET` | `isbn` | ISBN numarasına göre AI ve katalog sorgulama |
 
 ---
