@@ -34,10 +34,22 @@ $S=[
 if($a=='brand'){$st=$S['settings'];out(200,['name'=>($st['name']??'')?:'Fihrist','slogan'=>($st['slogan']??'')?:'Kütüphane Yönetimi']);}
 if($a=='login'&&$post){
   $u=trim((string)($in['username']??''));$p=(string)($in['password']??'');
-  foreach($S['admins'] as $x)if(strcasecmp($x['username'],$u)==0&&password_verify($p,$x['hash'])){session_regenerate_id(true);$_SESSION['aid']=$x['id'];out(200,['ok'=>1]);}
+  foreach($S['admins'] as $x)if(strcasecmp($x['username'],$u)==0&&password_verify($p,$x['hash'])){session_regenerate_id(true);$_SESSION['aid']=$x['id'];unset($_SESSION['mid']);out(200,['ok'=>1,'role'=>'admin']);}
+  $member=$pdo->prepare("SELECT id, username, password_hash FROM members WHERE username=? LIMIT 1");
+  $member->execute([$u]); $mx=$member->fetch();
+  if($mx && !empty($mx['password_hash']) && password_verify($p,$mx['password_hash'])){session_regenerate_id(true);$_SESSION['mid']=(string)$mx['id'];unset($_SESSION['aid']);out(200,['ok'=>1,'role'=>'member']);}
   sleep(1);out(401,['ok'=>0]);
 }
 if($a=='logout'){$_SESSION=[];session_destroy();out(200,['ok'=>1]);}
+if($a==='get' && !empty($_SESSION['mid'])){
+  $st=$pdo->prepare("SELECT id,name,email,role,username FROM members WHERE id=? LIMIT 1");
+  $st->execute([(int)$_SESSION['mid']]); $member=$st->fetch();
+  if(!$member){$_SESSION=[];session_destroy();out(401,['ok'=>0]);}
+  $st=$pdo->prepare("SELECT l.id,l.book_id AS bookId,l.member_id AS memberId,l.issue_date AS issueDate,l.due_date AS dueDate,l.return_date AS returnDate,l.status,b.title,b.author,b.isbn FROM loans l LEFT JOIN books b ON b.id=l.book_id WHERE l.member_id=? ORDER BY l.issue_date DESC");
+  $st->execute([(int)$member['id']]); $loans=$st->fetchAll();
+  $outLoans=array_map(function($l){return ['id'=>$l['id'],'bookId'=>(int)$l['bookId'],'memberId'=>(int)$l['memberId'],'issueDate'=>$l['issueDate'],'dueDate'=>$l['dueDate'],'returnDate'=>$l['returnDate'],'status'=>$l['status'],'title'=>$l['title'],'author'=>$l['author'],'isbn'=>$l['isbn']];},$loans);
+  out(200,['role'=>'member','member'=>['id'=>(int)$member['id'],'name'=>$member['name'],'username'=>$member['username'],'email'=>$member['email'],'role'=>$member['role']],'loans'=>$outLoans]);
+}
 $me=me($S);if(!$me)out(401,['ok'=>0]);
 if($a=='get'){
   $is_default_password = false;
@@ -48,6 +60,7 @@ if($a=='get'){
   $r['theme']=$S['theme'];$r['s']=(object)$S['settings'];$r['admins']=pub($S);$r['me']=meinfo($S);
   $r['hasKey']=!empty($S['isbndb_key']);$r['hasGeminiKey']=!empty($S['gemini_key']);
   $r['is_default_password']=$is_default_password;
+  $r['role']='admin';
   out(200,$r);
 }
 
@@ -85,12 +98,16 @@ if($a=='book_delete'&&$post){
 }
 
 if($a=='member_add'&&$post){
-  $name=trim((string)($in['name']??''));
+  $name=trim((string)($in['name']??'')); $username=trim((string)($in['username']??'')); $password=(string)($in['password']??'');
   if(!$name)out(400,['ok'=>0,'err'=>'Üye adı zorunludur']);
+  if(!preg_match('/^[a-zA-Z0-9._-]{3,64}$/',$username))out(400,['ok'=>0,'err'=>'Kullanıcı adı 3-64 karakter olmalı']);
+  if(strlen($password)<10)out(400,['ok'=>0,'err'=>'Üye parolası en az 10 karakter olmalı']);
+  $st=$pdo->prepare("SELECT COUNT(*) FROM members WHERE username=?"); $st->execute([$username]);
+  if((int)$st->fetchColumn()>0)out(409,['ok'=>0,'err'=>'Bu üye kullanıcı adı zaten kullanılıyor']);
   $id=(int)($in['id']??(int)(microtime(true)*1000));
-  $st=$pdo->prepare("INSERT INTO members (id,pos,name,email,phone,role,active_loans,avatar) VALUES (?,?,?,?,?,?,0,?)");
-  $st->execute([$id,0,$name,(string)($in['email']??''),(string)($in['phone']??''),(string)($in['role']??'Genel Okuyucu'),(string)($in['avatar']??'')]);
-  out(201,['ok'=>1,'id'=>$id]);
+  $st=$pdo->prepare("INSERT INTO members (id,pos,name,email,phone,role,active_loans,avatar,username,password_hash) VALUES (?,?,?,?,?,?,0,?,?,?)");
+  $st->execute([$id,0,$name,(string)($in['email']??''),(string)($in['phone']??''),(string)($in['role']??'Genel Okuyucu'),(string)($in['avatar']??''),$username,password_hash($password,PASSWORD_DEFAULT)]);
+  out(201,['ok'=>1,'id'=>$id,'username'=>$username]);
 }
 
 if($a=='member_update'&&$post){
@@ -118,9 +135,12 @@ if($a=='loan_create'&&$post){
   $pdo->beginTransaction();
   try{
     $stB=$pdo->prepare("SELECT current_stock FROM books WHERE id=? FOR UPDATE");
-    $stB->execute([$book_id]);
-    $stock=(int)$stB->fetchColumn();
-    if($stock<1){$pdo->rollBack();out(400,['ok'=>0,'err'=>'Bu kitap stokta kalmadı']);}
+    $stB->execute([$book_id]); $stock=$stB->fetchColumn();
+    if($stock===false || (int)$stock<1){$pdo->rollBack();out(400,['ok'=>0,'err'=>'Bu kitap stokta kalmadı']);}
+    $stM=$pdo->prepare("SELECT active_loans FROM members WHERE id=? FOR UPDATE"); $stM->execute([$member_id]); $memberLoans=$stM->fetchColumn();
+    if($memberLoans===false){$pdo->rollBack();out(404,['ok'=>0,'err'=>'Üye bulunamadı']);}
+    $maxLoans=max(1,min(20,(int)($S['settings']['maxLoansPerMember']??5)));
+    if((int)$memberLoans >= $maxLoans){$pdo->rollBack();out(400,['ok'=>0,'err'=>'Üye başına ödünç sınırına ulaşıldı']);}
     $pdo->prepare("UPDATE books SET current_stock=current_stock-1 WHERE id=?")->execute([$book_id]);
     $pdo->prepare("UPDATE members SET active_loans=active_loans+1 WHERE id=?")->execute([$member_id]);
     $lid='LN-'.random_int(100000,999999);
@@ -147,6 +167,21 @@ if($a=='loan_return'&&$post){
     $pdo->commit();
     out(200,['ok'=>1]);
   }catch(Throwable $e){$pdo->rollBack();throw $e;}
+}
+// CSV report generated from live loan records.
+if($a==='report' && ($_SERVER['REQUEST_METHOD'] ?? 'GET')==='GET'){
+  header_remove('Content-Type'); header('Content-Type: text/csv; charset=utf-8');
+  header('Content-Disposition: attachment; filename="fihrist-odunc-raporu-'.date('Y-m-d').'.csv');
+  echo "\xEF\xBB\xBF"; $fp=fopen('php://output','w');
+  fputcsv($fp,['Ödünç ID','Kitap','Yazar','Üye','E-posta','Ödünç Tarihi','Son İade Tarihi','İade Tarihi','Durum']);
+  $q=$pdo->query("SELECT l.id,b.title,b.author,m.name,m.email,l.issue_date,l.due_date,l.return_date,l.status FROM loans l LEFT JOIN books b ON b.id=l.book_id LEFT JOIN members m ON m.id=l.member_id ORDER BY l.issue_date DESC");
+  while($r=$q->fetch(PDO::FETCH_NUM)) fputcsv($fp,$r);
+  fclose($fp); exit;
+}
+if($a==='backup' && ($_SERVER['REQUEST_METHOD'] ?? 'GET')==='GET'){
+  header_remove('Content-Type'); header('Content-Type: application/json; charset=utf-8');
+  header('Content-Disposition: attachment; filename="fihrist-yedek-'.date('Y-m-d-His').'.json"');
+  echo json_encode(['app'=>'Fihrist','version'=>1,'createdAt'=>date(DATE_ATOM),'books'=>read_table('books'),'members'=>read_table('members'),'loans'=>read_table('loans'),'settings'=>$S['settings'],'theme'=>$S['theme']],JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT); exit;
 }
 if($a=='save'&&$post){
   $pdo->beginTransaction();
