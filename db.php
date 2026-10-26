@@ -66,7 +66,7 @@ function col_map($t) {
     'books' => ['title'=>['title','s'],'author'=>['author','s'],'category'=>['category','s'],'isbn'=>['isbn','s'],
       'totalStock'=>['total_stock','i'],'currentStock'=>['current_stock','i'],'color'=>['color','s'],
       'year'=>['year','s'],'pages'=>['pages','i'],'publisher'=>['publisher','s']],
-    'members' => ['name'=>['name','s'],'email'=>['email','s'],'phone'=>['phone','s'],'role'=>['role','s'],
+    'members' => ['name'=>['name','s'],'email'=>['email','s'],'phone'=>['phone','s'],'role'=>['role','s'],'username'=>['username','s'],
       'activeLoans'=>['active_loans','i'],'avatar'=>['avatar','s']],
     'loans' => ['bookId'=>['book_id','i'],'memberId'=>['member_id','i'],'issueDate'=>['issue_date','s'],
       'dueDate'=>['due_date','s'],'returnDate'=>['return_date','s'],'status'=>['status','s']],
