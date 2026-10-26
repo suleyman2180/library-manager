@@ -330,6 +330,7 @@
             <td class="py-3.5 px-6 font-semibold text-xs ${l.status === 'OVERDUE' ? 'text-rose-500' : 'text-slate-700 dark:text-slate-300'}">${l.dueDate}</td>
             <td class="py-3.5 px-6">${statusBadge}</td>
             <td class="py-3.5 px-6 text-right">
+              <button onclick="editLoan('${l.id}')" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 transition mr-1" title="Ödünç tarihlerini düzenle"><i class="fa-solid fa-pen"></i></button>
               ${l.status !== 'RETURNED' ? `
                 <button onclick="returnBookLoan('${l.id}')" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm transition mr-2">
                   <i class="fa-solid fa-rotate-left mr-1"></i> İade Al
@@ -337,7 +338,7 @@
                 <button onclick="extendLoanDate('${l.id}')" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 transition" title="7 Gün Süre Uzat">
                   +7 Gün
                 </button>
-              ` : `<span class="text-xs text-slate-400 italic">İade Edildi: ${l.returnDate}</span>`}
+              ` : `<span class="text-xs text-slate-400 italic mr-2">İade Edildi: ${l.returnDate}</span><button onclick="deleteLoan('${l.id}')" class="px-2 py-1.5 text-xs rounded-lg text-rose-500 hover:bg-rose-50" title="Çöp kutusuna taşı"><i class="fa-solid fa-trash-can"></i></button>`}
             </td>
           </tr>
         `;
