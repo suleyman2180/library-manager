@@ -220,6 +220,7 @@
             <button onclick="quickIssueLoan(${b.id})" ${b.currentStock === 0 ? 'disabled' : ''} class="flex-1 py-2 text-xs font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-brand-500 hover:text-white text-slate-700 dark:text-slate-200 disabled:opacity-40 disabled:hover:bg-slate-100 transition">
               <i class="fa-solid fa-handshake mr-1"></i> Ödünç Ver
             </button>
+            <button onclick="editBook(${b.id})" class="w-8 h-8 rounded-xl text-slate-400 hover:text-brand-500" title="Kitabı düzenle"><i class="fa-solid fa-pen text-xs"></i></button>
             <button onclick="openBarcodeModal(${b.id})" class="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition" title="Raf Etiketi & Barkod Bas">
               <i class="fa-solid fa-barcode text-xs"></i>
             </button>
@@ -256,6 +257,7 @@
             <button onclick="quickIssueLoan(${b.id})" ${b.currentStock === 0 ? 'disabled' : ''} class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-40 transition mr-2">
               Ödünç Ver
             </button>
+            <button onclick="editBook(${b.id})" class="text-slate-400 hover:text-brand-500 transition mr-2" title="Düzenle"><i class="fa-solid fa-pen"></i></button>
             <button onclick="openBarcodeModal(${b.id})" class="text-slate-400 hover:text-indigo-500 transition mr-2" title="Raf Etiketi & Barkod Bas">
               <i class="fa-solid fa-barcode"></i>
             </button>
@@ -328,6 +330,7 @@
             <td class="py-3.5 px-6 font-semibold text-xs ${l.status === 'OVERDUE' ? 'text-rose-500' : 'text-slate-700 dark:text-slate-300'}">${l.dueDate}</td>
             <td class="py-3.5 px-6">${statusBadge}</td>
             <td class="py-3.5 px-6 text-right">
+              <button onclick="editLoan('${l.id}')" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 transition mr-1" title="Ödünç tarihlerini düzenle"><i class="fa-solid fa-pen"></i></button>
               ${l.status !== 'RETURNED' ? `
                 <button onclick="returnBookLoan('${l.id}')" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm transition mr-2">
                   <i class="fa-solid fa-rotate-left mr-1"></i> İade Al
@@ -335,7 +338,7 @@
                 <button onclick="extendLoanDate('${l.id}')" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 transition" title="7 Gün Süre Uzat">
                   +7 Gün
                 </button>
-              ` : `<span class="text-xs text-slate-400 italic">İade Edildi: ${l.returnDate}</span>`}
+              ` : `<span class="text-xs text-slate-400 italic mr-2">İade Edildi: ${l.returnDate}</span><button onclick="deleteLoan('${l.id}')" class="px-2 py-1.5 text-xs rounded-lg text-rose-500 hover:bg-rose-50" title="Çöp kutusuna taşı"><i class="fa-solid fa-trash-can"></i></button>`}
             </td>
           </tr>
         `;
@@ -474,6 +477,7 @@
               </div>
 
               <div class="mt-3 pt-2 flex items-center justify-between gap-2">
+                <button onclick="editMember(${m.id})" class="w-8 h-8 rounded-xl text-slate-400 hover:text-brand-500" title="Üyeyi düzenle"><i class="fa-solid fa-pen"></i></button>
                 <button onclick="openKarneModal(${m.id})" class="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-bold transition">
                   <i class="fa-solid fa-graduation-cap text-amber-500"></i> Okuma Karnesi
                 </button>
@@ -1122,6 +1126,7 @@
         email: document.getElementById('memberEmail').value.trim(),
         phone: document.getElementById('memberPhone').value.trim(),
         role: document.getElementById('memberRole').value,
+        username: document.getElementById('memberUsername').value.trim(),
         activeLoans: 0,
         avatar: `https://serup.com.tr/enderun/assets/images/clubs/ahenkk.svg`
       };

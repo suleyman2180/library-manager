@@ -18,4 +18,4 @@ jobs:
       - name: Check PHP syntax
         run: php -l api.php && php -l db.php
       - name: Check JavaScript syntax
-        run: node --check js/app.js
+        run: node --check js/app.js && node --check js/record-manager.js

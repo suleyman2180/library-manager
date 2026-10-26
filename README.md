@@ -25,6 +25,8 @@
 - **👤 Üye Girişi:** Yönetici tarafından oluşturulan kullanıcı adı/parola ile üyeler yalnızca kendi ödünç geçmişlerini ve iade tarihlerini görüntüler.
 - **📤 Rapor ve Tam Yedek:** Yönetici CSV raporunu ve tek ZIP içinde veritabanının SQL + JSON dökümünü ve `/data` dosyalarını indirebilir. Tam yedek parola hashleri ve veritabanındaki API anahtarları gibi hassas bilgiler içerebildiğinden yalnızca yönetici oturumuna açıktır.
 - **📚 Ödünç Güvenliği:** Stok ve üye başına ödünç limiti sunucu tarafında doğrulanır.
+- **✏️ Kayıt Düzenleme:** Kitaplar, üyeler, yöneticiler, ödünç tarihleri ve sistem ayarları güncellenebilir.
+- **🗑️ Geri Alınabilir Silme:** Kitap, üye, yönetici ve iade edilmiş ödünç kayıtları çöp kutusuna taşınır; kayıtlar yönetici ayarlarından geri yüklenebilir.
 - **🎨 Modüler & Duyarlı Arayüz:**
   Tailwind CSS ve modern cam efekti (Glassmorphism), Koyu/Açık (Dark/Light) tema geçişi ve mobilde tam uyumlu düzen.
 
