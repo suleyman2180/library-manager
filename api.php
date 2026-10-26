@@ -171,7 +171,7 @@ if($a=='loan_return'&&$post){
 // CSV report generated from live loan records.
 if($a==='report' && ($_SERVER['REQUEST_METHOD'] ?? 'GET')==='GET'){
   header_remove('Content-Type'); header('Content-Type: text/csv; charset=utf-8');
-  header('Content-Disposition: attachment; filename="fihrist-odunc-raporu-'.date('Y-m-d').'.csv');
+  header('Content-Disposition: attachment; filename="fihrist-odunc-raporu-'.date('Y-m-d').'.csv"');
   echo "\xEF\xBB\xBF"; $fp=fopen('php://output','w');
   fputcsv($fp,['Ödünç ID','Kitap','Yazar','Üye','E-posta','Ödünç Tarihi','Son İade Tarihi','İade Tarihi','Durum']);
   $q=$pdo->query("SELECT l.id,b.title,b.author,m.name,m.email,l.issue_date,l.due_date,l.return_date,l.status FROM loans l LEFT JOIN books b ON b.id=l.book_id LEFT JOIN members m ON m.id=l.member_id ORDER BY l.issue_date DESC");
